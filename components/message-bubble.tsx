@@ -1,6 +1,7 @@
 "use client"
 
 import type { Message } from "./chat-container"
+import { parseMarkdown } from "@/lib/markdown"
 
 interface MessageBubbleProps {
   message: Message
@@ -8,6 +9,8 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, isUser }: MessageBubbleProps) {
+  const parsedContent = parseMarkdown(message.content)
+
   return (
     <div className={`flex gap-3 animate-slide-up ${isUser ? "justify-end" : "justify-start"}`}>
       <div className={`flex flex-col gap-1 max-w-xs sm:max-w-md ${isUser ? "items-end" : "items-start"}`}>
@@ -18,7 +21,7 @@ export function MessageBubble({ message, isUser }: MessageBubbleProps) {
               : "bg-card border border-primary/30 text-foreground rounded-bl-none"
           }`}
         >
-          {message.content}
+          {parsedContent}
         </div>
         <span className="text-xs text-muted-foreground px-2">
           {message.timestamp.toLocaleTimeString("es-ES", {

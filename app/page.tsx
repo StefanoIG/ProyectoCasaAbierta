@@ -1,11 +1,7 @@
 "use client"
 
-import { ChatContainer } from "@/components/chat-container"
+import { HomePage } from "@/components/home-page"
 
 export default function Home() {
-  return (
-    <main className="h-screen w-full bg-background flex items-center justify-center p-4">
-      <ChatContainer />
-    </main>
-  )
+  return <HomePage />
 }

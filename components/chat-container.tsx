@@ -60,23 +60,63 @@ export function ChatContainer() {
     addMessage(userMessage)
     setIsLoading(true)
 
-    // Simulate API delay - Replace this with your actual LLM integration
-    setTimeout(() => {
+    try {
+      // Preparar historial para enviar al API
+      const conversationHistory = messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }))
+
+      // Call the Gemini API through our route
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          message: content,
+          conversationHistory: conversationHistory
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Error en la respuesta del servidor")
+      }
+
+      const data = await response.json()
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: "Perfecto, estoy preparando tu bebida... 🔄",
+        content: data.text || "No se pudo procesar la respuesta",
         timestamp: new Date(),
       }
       addMessage(assistantMessage)
-      setState("preparing")
-      setIsLoading(false)
 
-      // Simulate preparation completion
-      setTimeout(() => {
-        setState("ready")
-      }, 3000)
-    }, 500)
+      // Si hay que preparar un cóctel
+      if (data.shouldPrepare && data.raspberryPayload) {
+        setState("preparing")
+
+        // Log del payload (simulación hasta que Raspberry esté disponible)
+        console.log("🍹 INICIANDO PREPARACIÓN:", data.raspberryPayload)
+
+        // Simular tiempo de preparación
+        setTimeout(() => {
+          setState("ready")
+        }, 3000)
+      }
+    } catch (error) {
+      console.error("Error:", error)
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "Lo siento, hubo un error procesando tu solicitud. Intenta de nuevo.",
+        timestamp: new Date(),
+      }
+      addMessage(errorMessage)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (

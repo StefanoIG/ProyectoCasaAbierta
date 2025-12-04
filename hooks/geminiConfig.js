@@ -7,11 +7,11 @@ const API_CONFIG = {
   GEMINI: {
     baseURL: 'https://generativelanguage.googleapis.com/v1beta',
     models: {
-      'gemini-pro': 'gemini-pro',
+      'gemini-2.5-flash': 'gemini-2.5-flash',
       'gemini-1.5-flash': 'gemini-1.5-flash',
       'gemini-1.5-pro': 'gemini-1.5-pro'
     },
-    defaultModel: 'gemini-1.5-flash',
+    defaultModel: 'gemini-2.5-flash',
     endpoints: {
       generateContent: (model) => `/models/${model}:generateContent`
     },
@@ -202,7 +202,7 @@ function generateRaspberryPayload(recipe) {
 async function sendGeminiPrompt(
   text,
   apiKey,
-  model = 'gemini-1.5-flash'
+  model = 'gemini-2.5-flash'
 ) {
   try {
     const ai = new GoogleGenAI({ apiKey });
