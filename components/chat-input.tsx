@@ -1,0 +1,45 @@
+"use client"
+
+import type React from "react"
+
+import { useState, useRef } from "react"
+
+interface ChatInputProps {
+  onSendMessage: (message: string) => void
+  isDisabled: boolean
+}
+
+export function ChatInput({ onSendMessage, isDisabled }: ChatInputProps) {
+  const [input, setInput] = useState("")
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (input.trim() && !isDisabled) {
+      onSendMessage(input.trim())
+      setInput("")
+      inputRef.current?.focus()
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="border-t border-border bg-card/50 px-4 sm:px-6 py-4 flex gap-3">
+      <input
+        ref={inputRef}
+        type="text"
+        placeholder="Cuéntame qué coctel deseas..."
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        disabled={isDisabled}
+        className="flex-1 bg-input border border-border rounded-full px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+      />
+      <button
+        type="submit"
+        disabled={isDisabled || !input.trim()}
+        className="bg-primary text-primary-foreground px-4 py-2.5 rounded-full font-semibold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95"
+      >
+        <span className="text-lg">→</span>
+      </button>
+    </form>
+  )
+}
