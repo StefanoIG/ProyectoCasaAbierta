@@ -1,83 +1,105 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { COCKTAIL_RECIPES, PUMP_CONFIG, getIngredientPump, INGREDIENT_EMOTES } from '@/lib/cocktails';
 
-// Configuración de cócteles
-const COCKTAIL_RECIPES = {
-  mojito: {
-    name: 'Mojito',
-    ingredients: [
-      { pump: 'pump_1', ingredient: 'ron', ml: 50 },
-      { pump: 'pump_4', ingredient: 'jugo_lima', ml: 30 },
-      { pump: 'pump_6', ingredient: 'soda', ml: 100 }
-    ],
-    description: 'Ron blanco, lima, menta y soda'
-  },
-  margarita: {
-    name: 'Margarita',
-    ingredients: [
-      { pump: 'pump_3', ingredient: 'tequila', ml: 50 },
-      { pump: 'pump_5', ingredient: 'triple_sec', ml: 25 },
-      { pump: 'pump_4', ingredient: 'jugo_lima', ml: 25 }
-    ],
-    description: 'Tequila, triple sec y lima'
-  },
-  vodka_soda: {
-    name: 'Vodka Soda',
-    ingredients: [
-      { pump: 'pump_2', ingredient: 'vodka', ml: 50 },
-      { pump: 'pump_4', ingredient: 'jugo_lima', ml: 15 },
-      { pump: 'pump_6', ingredient: 'soda', ml: 120 }
-    ],
-    description: 'Vodka con soda y un toque de lima'
-  }
+// ============================================
+// CONFIGURACIÓN RASPBERRY PI
+// ============================================
+const RASPBERRY_PI_CONFIG = {
+  host: '192.168.1.23',
+  port: 5000,
+  endpoint: '/hacer_trago'
 };
 
-const PUMP_CONFIG = {
-  pump_1: { id: 1, ingredient: 'ron', gpio_pin: 17, ml_per_second: 10 },
-  pump_2: { id: 2, ingredient: 'vodka', gpio_pin: 27, ml_per_second: 10 },
-  pump_3: { id: 3, ingredient: 'tequila', gpio_pin: 22, ml_per_second: 10 },
-  pump_4: { id: 4, ingredient: 'jugo_lima', gpio_pin: 23, ml_per_second: 10 },
-  pump_5: { id: 5, ingredient: 'triple_sec', gpio_pin: 24, ml_per_second: 10 },
-  pump_6: { id: 6, ingredient: 'soda', gpio_pin: 25, ml_per_second: 10 }
-};
+const getRaspberryUrl = () => 
+  `http://${RASPBERRY_PI_CONFIG.host}:${RASPBERRY_PI_CONFIG.port}${RASPBERRY_PI_CONFIG.endpoint}`;
 
 function detectCocktailRequest(text: string) {
   const lowerText = text.toLowerCase();
   
+  // Detectar confirmación explícita
+  const confirmPattern = /confirmar\s+(?:pedido\s+(?:de\s+)?)?(\w+)/i;
+  const confirmMatch = text.match(confirmPattern);
+  
+  if (confirmMatch) {
+    const cocktailName = confirmMatch[1].toLowerCase();
+    for (const [key, recipe] of Object.entries(COCKTAIL_RECIPES)) {
+      if ((recipe as any).name.toLowerCase().includes(cocktailName) || key.includes(cocktailName)) {
+        return { cocktailId: key, recipe, confirmed: true };
+      }
+    }
+  }
+  
+  // Búsqueda normal de cócteles (sin confirmación)
   for (const [key, recipe] of Object.entries(COCKTAIL_RECIPES)) {
     if (lowerText.includes((recipe as any).name.toLowerCase()) || lowerText.includes(key)) {
-      return { cocktailId: key, recipe };
+      return { cocktailId: key, recipe, confirmed: false };
     }
   }
   
   const keywords = ['quiero', 'dame', 'prepara', 'hazme', 'quisiera', 'me gustaría'];
   const hasCocktailIntent = keywords.some(keyword => lowerText.includes(keyword));
   
-  return hasCocktailIntent ? { intent: 'request', cocktailId: null } : null;
+  return hasCocktailIntent ? { intent: 'request', cocktailId: null, confirmed: false } : null;
 }
 
 function generateRaspberryPayload(recipe: any) {
   const pumps: any = {};
+  let totalMl = 0;
   
-  recipe.ingredients.forEach((ingredient: any) => {
-    const pumpConfig = PUMP_CONFIG[ingredient.pump as keyof typeof PUMP_CONFIG];
-    const durationMs = (ingredient.ml / pumpConfig.ml_per_second) * 1000;
+  // Convertir ingredientes del nuevo formato
+  for (const [ingredientName, ml] of Object.entries(recipe.ingredients)) {
+    const pumpKey = getIngredientPump(ingredientName);
+    if (!pumpKey) continue;
     
-    pumps[ingredient.pump] = {
+    const pumpConfig = PUMP_CONFIG[pumpKey as keyof typeof PUMP_CONFIG];
+    const mlValue = ml as number;
+    const durationMs = (mlValue / pumpConfig.ml_per_second) * 1000;
+    
+    pumps[pumpKey] = {
       gpio_pin: pumpConfig.gpio_pin,
-      ingredient: ingredient.ingredient,
-      ml: ingredient.ml,
+      ingredient: ingredientName,
+      ml: mlValue,
       duration_ms: Math.round(durationMs)
     };
-  });
+    
+    totalMl += mlValue;
+  }
   
   return {
     recipe_id: recipe.name.toLowerCase().replace(/\s+/g, '_'),
     recipe_name: recipe.name,
     pumps,
-    total_ml: recipe.ingredients.reduce((sum: number, ing: any) => sum + ing.ml, 0),
+    total_ml: totalMl,
     timestamp: Date.now()
   };
+}
+
+async function sendToRaspberryPi(payload: any) {
+  try {
+    const url = getRaspberryUrl();
+    console.log(`🍹 Enviando payload a Raspberry Pi: ${url}`);
+    console.log('Payload:', JSON.stringify(payload, null, 2));
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Error HTTP: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    console.log('✅ Respuesta de Raspberry Pi:', result);
+    return result;
+  } catch (error: any) {
+    console.error('❌ Error al enviar a Raspberry Pi:', error.message);
+    throw error;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -94,52 +116,54 @@ export async function POST(request: NextRequest) {
 
     // Inicializar Google Generative AI
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
 
     // Detectar si hay solicitud de cóctel
     const cocktailRequest = detectCocktailRequest(message);
 
     // Sistema prompt mejorado con emotes y mejor formateo
     const isFirstMessage = conversationHistory.length === 0;
-    
-    // Crear mapeo de ingredientes a emotes
-    const ingredientEmotes: { [key: string]: string } = {
-      'ron': '🥃',
-      'vodka': '🧊',
-      'tequila': '🌵',
-      'jugo_lima': '🍋',
-      'triple_sec': '🍊',
-      'soda': '💧',
-    };
 
     const systemPrompt = `Eres un barman profesional AI amable y cordial que ayuda a preparar cócteles usando un sistema IoT con bombas automáticas.
 
 **INGREDIENTES DISPONIBLES:**
 ${Object.entries(PUMP_CONFIG)
-  .map(([key, pump]) => `${ingredientEmotes[pump.ingredient] || '🥤'} ${pump.ingredient.replace('_', ' ')}`)
+  .map(([key, pump]) => `- ${pump.ingredient.replace('_', ' ')}`)
   .join('\n')}
 
 **CÓCTELES DISPONIBLES:**
 ${Object.entries(COCKTAIL_RECIPES)
   .map(([key, recipe]) => {
-    const ingredients = (recipe as any).ingredients
-      .map((ing: any) => `${ingredientEmotes[ing.ingredient] || '🥤'} ${ing.ingredient.replace('_', ' ')}`)
+    const ingredients = Object.keys((recipe as any).ingredients)
+      .map((ing: string) => ing.replace('_', ' '))
       .join(', ');
-    return `🍹 **${(recipe as any).name}** → ${ingredients}`;
+    return `- **${(recipe as any).name}**: ${ingredients}`;
   })
   .join('\n')}
 
 **INSTRUCCIONES CRÍTICAS:**
-1. Responde SIEMPRE en máximo 500 caracteres
-2. ${isFirstMessage ? 'Saluda calurosamente con emote al usuario la PRIMERA VEZ' : 'NO saludes - continúa la conversación naturalmente sin saludos'}
-3. Usa emotes para cada ingrediente cuando los menciones (ej: 🥃 para ron, 🍋 para lima, 🍊 para triple sec, etc)
-4. Usa emotes para cada bebida cuando las menciones (ej: 🍹 para cócteles)
-5. Mantén un tono profesional, formal pero MUY CORDIAL y amable
-6. Cuando listes ingredientes, usa el emote + nombre legible (ej: "🥃 ron" NO "jugo_lima")
-7. Sé conciso pero cálido - usa emotes de forma natural en la conversación
-8. Si el usuario pide un cóctel, describe los ingredientes con sus emotes y prepáralo
-9. Si el cóctel no está disponible, sugiere alternativas mostrando sus ingredientes con emotes
-10. IMPORTANTE: Reemplaza siempre nombres con guiones bajo (jugo_lima, triple_sec, etc) por nombres legibles con emotes (🍋 lima, 🍊 triple sec)`;
+1. Responde en máximo 300 caracteres de forma concisa y directa
+2. ${isFirstMessage ? 'Saluda brevemente al usuario la PRIMERA VEZ (ejemplo: "¡Hola! Bienvenido al barman automático 🍹")' : 'NO saludes - continúa la conversación naturalmente'}
+3. Usa SOLO 1 emoji por mensaje (preferiblemente 🍹 al mencionar cócteles)
+4. Mantén un tono profesional y cordial pero CONCISO
+5. Cuando menciones ingredientes, usa nombres legibles sin emojis (ejemplo: "ron, lima, soda" NO "🥃 ron, 🍋 lima, 💧 soda")
+6. Sé breve y directo en tus respuestas
+
+**REGLAS DE CONFIRMACIÓN OBLIGATORIAS:**
+7. Si el usuario pide un cóctel que EXISTE, responde con los ingredientes y cantidades, luego EXIGE confirmación explícita
+8. Para confirmar, el usuario DEBE escribir exactamente: "CONFIRMAR PEDIDO DE [NOMBRE_COCKTAIL]"
+9. NO prepares NINGÚN cóctel hasta que el usuario escriba la confirmación exacta
+10. Si el usuario pide un cóctel que NO existe (ej: "Mojito 2"), responde que NO existe y menciona el nombre correcto disponible
+
+**EJEMPLOS DE RESPUESTAS CONCISAS:**
+Usuario: "Quiero un mojito"
+Tú: "🍹 Mojito: 50ml ron, 30ml lima, 100ml soda. Para confirmar escribe: CONFIRMAR PEDIDO DE MOJITO"
+
+Usuario: "Quiero un mojito 2"
+Tú: "No tenemos 'Mojito 2'. Solo disponemos de Mojito. Para pedirlo escribe: CONFIRMAR PEDIDO DE MOJITO"
+
+Usuario: "Hola"
+Tú: "¡Hola! Bienvenido al barman automático 🍹 Tenemos 8 cócteles disponibles. ¿Cuál te gustaría?"`;
 
     // Construir historial de conversación
     const contents = [
@@ -167,16 +191,31 @@ ${Object.entries(COCKTAIL_RECIPES)
       text: responseText,
       shouldPrepare: false,
       recipe: null,
-      raspberryPayload: null
+      raspberryPayload: null,
+      raspberryResponse: null
     };
 
-    // Si se detectó un cóctel, preparar payload
-    if (cocktailRequest?.cocktailId) {
+    // Si se detectó un cóctel Y está confirmado, preparar y enviar
+    if (cocktailRequest?.cocktailId && cocktailRequest.confirmed) {
       const recipe = COCKTAIL_RECIPES[cocktailRequest.cocktailId as keyof typeof COCKTAIL_RECIPES];
       finalResponse.shouldPrepare = true;
       finalResponse.recipe = recipe;
       finalResponse.raspberryPayload = generateRaspberryPayload(recipe);
+      
       console.log('🍹 RASPBERRY PI PAYLOAD:', JSON.stringify(finalResponse.raspberryPayload, null, 2));
+      
+      // Enviar al Raspberry Pi
+      try {
+        const raspberryResult = await sendToRaspberryPi(finalResponse.raspberryPayload);
+        finalResponse.raspberryResponse = raspberryResult;
+        console.log('✅ Cóctel enviado a preparar exitosamente');
+      } catch (error: any) {
+        console.error('❌ Error al enviar al Raspberry Pi:', error.message);
+        finalResponse.raspberryResponse = { 
+          error: true, 
+          message: `Error al comunicarse con el Raspberry Pi: ${error.message}` 
+        };
+      }
     }
 
     return NextResponse.json(finalResponse);

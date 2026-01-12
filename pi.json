@@ -1,0 +1,106 @@
+{
+    "pumps": {
+        "pump_1": {
+            "name": "Bomba 1 (Ron)",
+            "pin": 17,
+            "value": "ron"
+        },
+        "pump_2": {
+            "name": "Bomba 2 (Vodka)",
+            "pin": 27,
+            "value": "vodka"
+        },
+        "pump_3": {
+            "name": "Bomba 3 (Tequila)",
+            "pin": 22,
+            "value": "tequila"
+        },
+        "pump_4": {
+            "name": "Bomba 4 (Lima)",
+            "pin": 23,
+            "value": "jugo_lima"
+        },
+        "pump_5": {
+            "name": "Bomba 5 (Triple Sec)",
+            "pin": 24,
+            "value": "triple_sec"
+        },
+        "pump_6": {
+            "name": "Bomba 6 (Soda)",
+            "pin": 25,
+            "value": "soda"
+        }
+    },
+    "recipes": {
+        "mojito": {
+            "name": "Mojito",
+            "ingredients": {
+                "ron": 50,
+                "jugo_lima": 30,
+                "soda": 100
+            }
+        },
+        "margarita": {
+            "name": "Margarita",
+            "ingredients": {
+                "tequila": 50,
+                "triple_sec": 25,
+                "jugo_lima": 25
+            }
+        },
+        "vodka_soda": {
+            "name": "Vodka Soda",
+            "ingredients": {
+                "vodka": 50,
+                "soda": 120,
+                "jugo_lima": 15
+            }
+        },
+        "cuba_libre": {
+            "name": "Cuba Libre",
+            "ingredients": {
+                "ron": 60,
+                "jugo_lima": 20,
+                "soda": 120
+            }
+        },
+        "paloma": {
+            "name": "Paloma",
+            "ingredients": {
+                "tequila": 60,
+                "jugo_lima": 30,
+                "soda": 110
+            }
+        },
+        "vodka_citrus": {
+            "name": "Vodka Citrus",
+            "ingredients": {
+                "vodka": 45,
+                "triple_sec": 15,
+                "jugo_lima": 20,
+                "soda": 100
+            }
+        },
+        "tequila_sunrise": {
+            "name": "Tequila Sunrise",
+            "ingredients": {
+                "tequila": 50,
+                "jugo_lima": 40,
+                "soda": 90
+            }
+        },
+        "ron_collins": {
+            "name": "Ron Collins",
+            "ingredients": {
+                "ron": 50,
+                "jugo_lima": 35,
+                "soda": 115
+            }
+        }
+    },
+    "config": {
+        "flow_rate": 0.6,
+        "max_preparation_time": 30,
+        "cleanup_delay": 2
+    }
+}
