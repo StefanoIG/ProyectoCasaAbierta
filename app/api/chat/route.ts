@@ -3,6 +3,12 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { COCKTAIL_RECIPES, PUMP_CONFIG, getIngredientPump, INGREDIENT_EMOTES } from '@/lib/cocktails';
 
 // ============================================
+// RATE LIMITING - Gemini API
+// ============================================
+let lastRequest = 0;
+const COOLDOWN = 35000; // 35 segundos entre requests
+
+// ============================================
 // CONFIGURACIÓN RASPBERRY PI
 // ============================================
 const RASPBERRY_PI_CONFIG = {
@@ -187,8 +193,13 @@ async function sendToRaspberryPi(payload: any) {
 }
 
 export async function POST(request: NextRequest) {
+  let previousLanguage: 'es' | 'en' = 'es'; // Declarar fuera del try para usar en catch
+  
   try {
-    const { message, conversationHistory = [], previousLanguage = 'es' } = await request.json();
+    const requestData = await request.json();
+    const { message, conversationHistory = [] } = requestData;
+    previousLanguage = requestData.previousLanguage || 'es';
+    
     const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
     if (!apiKey) {
@@ -197,6 +208,33 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    // ============================================
+    // RATE LIMITING CHECK
+    // ============================================
+    const now = Date.now();
+    const timeSinceLastRequest = now - lastRequest;
+    
+    if (timeSinceLastRequest < COOLDOWN) {
+      const waitTime = Math.ceil((COOLDOWN - timeSinceLastRequest) / 1000);
+      const errorMessage = previousLanguage === 'es' 
+        ? `⏳ Por favor espera ${waitTime} segundos antes de enviar otro mensaje`
+        : `⏳ Please wait ${waitTime} seconds before sending another message`;
+      
+      console.log(`⚠️ Rate limit: Usuario debe esperar ${waitTime}s`);
+      
+      return NextResponse.json(
+        { 
+          error: errorMessage,
+          isRateLimit: true,
+          waitTime: waitTime
+        },
+        { status: 429 }
+      );
+    }
+    
+    // Actualizar último request
+    lastRequest = now;
 
     // Detectar idioma del mensaje (pasar idioma anterior)
     const language = detectLanguage(message, previousLanguage);
@@ -372,6 +410,23 @@ You: "🍹 Vodka Soda: 50ml vodka, 100ml soda, 20ml lime"`;
     return NextResponse.json(finalResponse);
   } catch (error: any) {
     console.error('Error en chat API:', error);
+    
+    // Manejar específicamente errores de quota de Gemini
+    if (error.message && error.message.includes('quota') || error.status === 429) {
+      const errorMessage = previousLanguage === 'es'
+        ? '⚠️ Se alcanzó el límite de la API. Por favor espera 35 segundos e intenta de nuevo.'
+        : '⚠️ API rate limit reached. Please wait 35 seconds and try again.';
+      
+      return NextResponse.json(
+        { 
+          error: errorMessage,
+          isRateLimit: true,
+          waitTime: 35
+        },
+        { status: 429 }
+      );
+    }
+    
     return NextResponse.json(
       { error: error.message || 'Error procesando el mensaje' },
       { status: 500 }

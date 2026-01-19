@@ -89,7 +89,14 @@ export function ChatContainer() {
       })
 
       if (!response.ok) {
-        throw new Error("Error en la respuesta del servidor")
+        const errorData = await response.json()
+        
+        // Manejar rate limit específicamente
+        if (response.status === 429 && errorData.isRateLimit) {
+          throw new Error(errorData.error)
+        }
+        
+        throw new Error(errorData.error || "Error en la respuesta del servidor")
       }
 
       const data = await response.json()
@@ -134,9 +141,13 @@ export function ChatContainer() {
       }
     } catch (error) {
       console.error("Error:", error)
-      const errorText = language === 'es'
-        ? "Lo siento, hubo un error preparando tu coctel. Intenta de nuevo."
-        : "Sorry, there was an error preparing your cocktail. Please try again."
+      
+      // Obtener mensaje de error (puede venir del rate limit o error genérico)
+      const errorText = error instanceof Error 
+        ? error.message 
+        : (language === 'es'
+            ? "Lo siento, hubo un error preparando tu coctel. Intenta de nuevo."
+            : "Sorry, there was an error preparing your cocktail. Please try again.")
       
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -182,7 +193,14 @@ export function ChatContainer() {
       })
 
       if (!response.ok) {
-        throw new Error("Error en la respuesta del servidor")
+        const errorData = await response.json()
+        
+        // Manejar rate limit específicamente
+        if (response.status === 429 && errorData.isRateLimit) {
+          throw new Error(errorData.error)
+        }
+        
+        throw new Error(errorData.error || "Error en la respuesta del servidor")
       }
 
       const data = await response.json()
@@ -206,9 +224,13 @@ export function ChatContainer() {
 
     } catch (error) {
       console.error("Error:", error)
-      const errorText = language === 'es'
-        ? "Lo siento, hubo un error procesando tu solicitud. Intenta de nuevo."
-        : "Sorry, there was an error processing your request. Please try again."
+      
+      // Obtener mensaje de error (puede venir del rate limit o error genérico)
+      const errorText = error instanceof Error 
+        ? error.message 
+        : (language === 'es'
+            ? "Lo siento, hubo un error procesando tu solicitud. Intenta de nuevo."
+            : "Sorry, there was an error processing your request. Please try again.")
       
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
