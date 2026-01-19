@@ -17,6 +17,10 @@ pedidos_queue = Queue()
 preparando = False
 preparando_lock = threading.Lock()
 
+# CALIBRACIÓN: segundos por mililitro
+# Ajusta estos valores según tu bomba específica
+SEGUNDOS_POR_ML = 0.5  # Por ejemplo: 10ml = 5 segundos, 30ml = 15 segundos
+
 # ============================================
 # FUNCIONES DE CONFIGURACIÓN
 # ============================================
@@ -48,56 +52,71 @@ def setup_gpio():
     return True
 
 # ============================================
-# VALIDACIÓN DE RECETAS
+# VALIDACIÓN Y PREPARACIÓN DE RECETAS
 # ============================================
-def validate_recipe(recipe_data):
-    """Valida que la receta existe y tiene todos los ingredientes disponibles"""
+def validate_and_prepare_recipe(recipe_id):
+    """
+    Valida que la receta existe y prepara la lista de bombas a activar
+    Retorna: (success, data/error_message)
+    """
     config = load_config()
     if not config:
         return False, "Error cargando configuración"
     
-    recipe_id = recipe_data.get('recipe_id')
-    pumps_data = recipe_data.get('pumps', {})
-    
-    # Verificar que la receta existe en pi.json
+    # Verificar que la receta existe
     recipes = config.get('recipes', {})
     if recipe_id not in recipes:
         return False, f"Receta '{recipe_id}' no existe en la configuración"
     
-    # Verificar que todos los ingredientes están disponibles
-    available_pumps = config.get('pumps', {})
-    recipe_ingredients = recipes[recipe_id]['ingredients']
+    recipe = recipes[recipe_id]
+    recipe_name = recipe['name']
+    ingredients_needed = recipe['ingredients']  # Dict: {ingrediente: ml}
     
-    for ingredient, ml in recipe_ingredients.items():
-        # Buscar si hay una bomba con ese ingrediente
-        found = False
+    # Buscar qué bomba tiene cada ingrediente
+    available_pumps = config.get('pumps', {})
+    pumps_to_activate = []
+    
+    for ingredient, ml in ingredients_needed.items():
+        # Buscar la bomba que tiene este ingrediente
+        pump_found = None
         for pump_id, pump_info in available_pumps.items():
             if pump_info['value'] == ingredient:
-                found = True
+                pump_found = {
+                    'pump_id': pump_id,
+                    'gpio_pin': pump_info['pin'],
+                    'ingredient': ingredient,
+                    'ml': ml,
+                    'name': pump_info['name']
+                }
                 break
         
-        if not found:
-            return False, f"Ingrediente '{ingredient}' no disponible en las bombas"
+        if not pump_found:
+            return False, f"Ingrediente '{ingredient}' no disponible en ninguna bomba"
+        
+        pumps_to_activate.append(pump_found)
     
-    # Verificar que el payload tiene las bombas correctas
-    if not pumps_data:
-        return False, "No se especificaron bombas en el payload"
-    
-    return True, "Receta válida"
+    return True, {
+        'recipe_id': recipe_id,
+        'recipe_name': recipe_name,
+        'pumps': pumps_to_activate,
+        'timestamp': datetime.now().isoformat()
+    }
 
 # ============================================
 # FUNCIÓN DE VERTIDO
 # ============================================
 def verter(pin, ml, ingredient_name):
     """Activa una bomba específica por el tiempo calculado"""
-    config = load_config()
-    flow_rate = config.get('config', {}).get('flow_rate', 0.6)
-    tiempo = ml * flow_rate
+    tiempo = ml * SEGUNDOS_POR_ML
     
-    print(f"  🚰 Vertiendo {ml}ml de {ingredient_name} (PIN {pin}, {tiempo:.1f}s)")
-    GPIO.output(pin, GPIO.LOW)   # Encender bomba
+    print(f"  🚰 Vertiendo {ml}ml de {ingredient_name}")
+    print(f"     PIN {pin} | Tiempo: {tiempo:.1f}s")
+    
+    GPIO.output(pin, GPIO.LOW)   # Encender bomba (relé activo en LOW)
     time.sleep(tiempo)
     GPIO.output(pin, GPIO.HIGH)  # Apagar bomba
+    
+    print(f"  ✓ Completado: {ingredient_name}")
 
 # ============================================
 # PROCESADOR DE PEDIDOS (WORKER THREAD)
@@ -117,29 +136,36 @@ def procesar_pedidos():
             print(f"\n{'='*60}")
             print(f"🍹 INICIANDO PREPARACIÓN: {pedido['recipe_name']}")
             print(f"   Pedido ID: {pedido['timestamp']}")
-            print(f"   Posición en cola: {pedidos_queue.qsize() + 1}")
+            print(f"   Ingredientes: {len(pedido['pumps'])}")
+            print(f"   Pedidos restantes en cola: {pedidos_queue.qsize()}")
             print(f"{'='*60}\n")
             
             config = load_config()
-            max_time = config.get('config', {}).get('max_preparation_time', 30)
+            max_time = config.get('config', {}).get('max_preparation_time', 60)
             cleanup_delay = config.get('config', {}).get('cleanup_delay', 2)
             
             start_time = time.time()
             
-            # Procesar cada bomba
-            for pump_id, pump_data in pedido['pumps'].items():
-                # Verificar timeout de 30 segundos
+            # Procesar cada bomba en secuencia
+            for idx, pump_data in enumerate(pedido['pumps'], 1):
+                # Verificar timeout
                 elapsed = time.time() - start_time
                 if elapsed > max_time:
                     print(f"⚠️  TIMEOUT: Se alcanzó el límite de {max_time}s")
                     break
+                
+                print(f"\n[{idx}/{len(pedido['pumps'])}] Procesando ingrediente:")
                 
                 pin = pump_data['gpio_pin']
                 ml = pump_data['ml']
                 ingredient = pump_data['ingredient']
                 
                 verter(pin, ml, ingredient)
-                time.sleep(cleanup_delay)  # Pausa entre bombas
+                
+                # Pausa entre ingredientes (excepto después del último)
+                if idx < len(pedido['pumps']):
+                    print(f"  ⏸️  Pausa de {cleanup_delay}s antes del siguiente ingrediente\n")
+                    time.sleep(cleanup_delay)
             
             total_time = time.time() - start_time
             print(f"\n{'='*60}")
@@ -150,6 +176,8 @@ def procesar_pedidos():
             
         except Exception as e:
             print(f"❌ Error procesando pedido: {e}")
+            import traceback
+            traceback.print_exc()
         
         finally:
             with preparando_lock:
@@ -161,7 +189,10 @@ def procesar_pedidos():
 # ============================================
 @app.route('/hacer_trago', methods=['POST'])
 def hacer_trago():
-    """Endpoint principal para recibir pedidos de cócteles"""
+    """
+    Endpoint principal para recibir pedidos de cócteles
+    Payload esperado: {"recipe_id": "mojito"}
+    """
     global preparando
     
     try:
@@ -173,36 +204,58 @@ def hacer_trago():
                 'mensaje': 'No se recibieron datos'
             }), 400
         
-        print(f"\n📥 Pedido recibido: {datos.get('recipe_name', 'Desconocido')}")
-        
-        # Validar receta
-        is_valid, mensaje = validate_recipe(datos)
-        if not is_valid:
-            print(f"❌ Validación fallida: {mensaje}")
+        recipe_id = datos.get('recipe_id')
+        if not recipe_id:
             return jsonify({
                 'status': 'error',
-                'mensaje': mensaje
+                'mensaje': 'Falta el campo recipe_id'
             }), 400
+        
+        print(f"\n📥 Pedido recibido: {recipe_id}")
+        
+        # Validar y preparar la receta completa
+        is_valid, result = validate_and_prepare_recipe(recipe_id)
+        
+        if not is_valid:
+            print(f"❌ Validación fallida: {result}")
+            return jsonify({
+                'status': 'error',
+                'mensaje': result
+            }), 400
+        
+        # result ahora contiene toda la info de las bombas a activar
+        pedido_completo = result
         
         # Agregar a la cola
         posicion = pedidos_queue.qsize() + 1
-        pedidos_queue.put(datos)
+        pedidos_queue.put(pedido_completo)
         
         with preparando_lock:
             estado_actual = "preparando" if preparando else "en cola"
         
-        print(f"✓ Pedido agregado a la cola (posición {posicion})")
+        # Calcular tiempo estimado
+        tiempo_estimado = sum(p['ml'] * SEGUNDOS_POR_ML for p in pedido_completo['pumps'])
+        tiempo_estimado += len(pedido_completo['pumps']) * 2  # Agregar pausas
+        
+        print(f"✓ Pedido '{pedido_completo['recipe_name']}' agregado a la cola")
+        print(f"  Posición: {posicion}")
+        print(f"  Bombas a activar: {len(pedido_completo['pumps'])}")
+        print(f"  Tiempo estimado: {tiempo_estimado:.1f}s")
         
         return jsonify({
             'status': 'success',
-            'mensaje': f"{datos['recipe_name']} agregado a la cola",
+            'mensaje': f"{pedido_completo['recipe_name']} agregado a la cola",
+            'recipe_name': pedido_completo['recipe_name'],
+            'ingredientes': len(pedido_completo['pumps']),
             'posicion_cola': posicion,
             'estado': estado_actual,
-            'tiempo_estimado': f"{posicion * 30}s"
+            'tiempo_estimado_segundos': round(tiempo_estimado, 1)
         }), 200
         
     except Exception as e:
         print(f"❌ Error en endpoint: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'status': 'error',
             'mensaje': str(e)
@@ -214,10 +267,14 @@ def get_estado():
     with preparando_lock:
         estado = "preparando" if preparando else "disponible"
     
+    config = load_config()
+    pumps = config.get('pumps', {}) if config else {}
+    
     return jsonify({
         'estado': estado,
         'pedidos_en_cola': pedidos_queue.qsize(),
-        'tiempo_estimado': f"{pedidos_queue.qsize() * 30}s"
+        'bombas_configuradas': len(pumps),
+        'calibracion_sg_por_ml': SEGUNDOS_POR_ML
     }), 200
 
 @app.route('/health', methods=['GET'])
@@ -228,6 +285,19 @@ def health_check():
         'timestamp': datetime.now().isoformat()
     }), 200
 
+@app.route('/calibracion', methods=['GET'])
+def get_calibracion():
+    """Endpoint para consultar la calibración actual"""
+    return jsonify({
+        'segundos_por_ml': SEGUNDOS_POR_ML,
+        'ejemplos': {
+            '10ml': f"{10 * SEGUNDOS_POR_ML}s",
+            '30ml': f"{30 * SEGUNDOS_POR_ML}s",
+            '50ml': f"{50 * SEGUNDOS_POR_ML}s",
+            '100ml': f"{100 * SEGUNDOS_POR_ML}s"
+        }
+    }), 200
+
 # ============================================
 # INICIALIZACIÓN
 # ============================================
@@ -235,6 +305,9 @@ if __name__ == '__main__':
     print("\n" + "="*60)
     print("🍹 SISTEMA DE BARMAN AUTOMÁTICO - INICIANDO")
     print("="*60 + "\n")
+    
+    print(f"⚙️  CALIBRACIÓN: {SEGUNDOS_POR_ML}s por ml")
+    print(f"   Ejemplos: 10ml={10*SEGUNDOS_POR_ML}s | 30ml={30*SEGUNDOS_POR_ML}s | 50ml={50*SEGUNDOS_POR_ML}s\n")
     
     # Configurar GPIO
     if not setup_gpio():
