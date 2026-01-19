@@ -10,9 +10,11 @@ interface ChatMessagesProps {
   messages: Message[]
   isLoading: boolean
   state: ChatState
+  onConfirmCocktail: (cocktailId: string) => void
+  language?: 'es' | 'en'
 }
 
-export function ChatMessages({ messages, isLoading, state }: ChatMessagesProps) {
+export function ChatMessages({ messages, isLoading, state, onConfirmCocktail, language = 'es' }: ChatMessagesProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -20,12 +22,17 @@ export function ChatMessages({ messages, isLoading, state }: ChatMessagesProps) 
   }, [messages])
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+    <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-4 scrollbar-thin scrollbar-thumb-primary/30 scrollbar-track-transparent hover:scrollbar-thumb-primary/50">
       {messages.map((message) => (
-        <MessageBubble key={message.id} message={message} isUser={message.role === "user"} />
+        <MessageBubble 
+          key={message.id} 
+          message={message} 
+          isUser={message.role === "user"} 
+          onConfirmCocktail={onConfirmCocktail}
+        />
       ))}
 
-      {isLoading && state === "preparing" && <PreparationIndicator />}
+      {isLoading && state === "preparing" && <PreparationIndicator language={language} />}
 
       <div ref={messagesEndRef} />
     </div>

@@ -16,7 +16,7 @@
             "value": "tequila"
         },
         "pump_4": {
-            "name": "Bomba 4 (Lima)",
+            "name": "Bomba 4 (Jugo de Lima)",
             "pin": 23,
             "value": "jugo_lima"
         },
@@ -34,6 +34,7 @@
     "recipes": {
         "mojito": {
             "name": "Mojito",
+            "description": "Clásico cubano refrescante",
             "ingredients": {
                 "ron": 50,
                 "jugo_lima": 30,
@@ -42,6 +43,7 @@
         },
         "margarita": {
             "name": "Margarita",
+            "description": "El clásico mexicano",
             "ingredients": {
                 "tequila": 50,
                 "triple_sec": 25,
@@ -50,6 +52,7 @@
         },
         "vodka_soda": {
             "name": "Vodka Soda",
+            "description": "Simple y refrescante",
             "ingredients": {
                 "vodka": 50,
                 "soda": 120,
@@ -58,6 +61,7 @@
         },
         "cuba_libre": {
             "name": "Cuba Libre",
+            "description": "Ron, lima y cola",
             "ingredients": {
                 "ron": 60,
                 "jugo_lima": 20,
@@ -66,6 +70,7 @@
         },
         "paloma": {
             "name": "Paloma",
+            "description": "Tequila refrescante",
             "ingredients": {
                 "tequila": 60,
                 "jugo_lima": 30,
@@ -74,6 +79,7 @@
         },
         "vodka_citrus": {
             "name": "Vodka Citrus",
+            "description": "Vodka con toque cítrico",
             "ingredients": {
                 "vodka": 45,
                 "triple_sec": 15,
@@ -83,6 +89,7 @@
         },
         "tequila_sunrise": {
             "name": "Tequila Sunrise",
+            "description": "Tequila tropical",
             "ingredients": {
                 "tequila": 50,
                 "jugo_lima": 40,
@@ -91,16 +98,34 @@
         },
         "ron_collins": {
             "name": "Ron Collins",
+            "description": "Ron con soda y lima",
             "ingredients": {
                 "ron": 50,
                 "jugo_lima": 35,
                 "soda": 115
             }
+        },
+        "tequila_simple": {
+            "name": "Tequila Simple",
+            "description": "Tequila solo con lima",
+            "ingredients": {
+                "tequila": 60,
+                "jugo_lima": 30
+            }
+        },
+        "vodka_puro": {
+            "name": "Vodka con Lima",
+            "description": "Vodka y un toque de lima",
+            "ingredients": {
+                "vodka": 60,
+                "jugo_lima": 20
+            }
         }
     },
     "config": {
-        "flow_rate": 0.6,
-        "max_preparation_time": 30,
-        "cleanup_delay": 2
+        "segundos_por_ml": 0.5,
+        "max_preparation_time": 60,
+        "cleanup_delay": 2,
+        "notas": "segundos_por_ml: calibrar según tu bomba. max_preparation_time: timeout de seguridad. cleanup_delay: pausa entre ingredientes"
     }
 }

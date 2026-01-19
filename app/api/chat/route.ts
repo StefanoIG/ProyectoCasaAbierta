@@ -14,33 +14,117 @@ const RASPBERRY_PI_CONFIG = {
 const getRaspberryUrl = () => 
   `http://${RASPBERRY_PI_CONFIG.host}:${RASPBERRY_PI_CONFIG.port}${RASPBERRY_PI_CONFIG.endpoint}`;
 
-function detectCocktailRequest(text: string) {
+// Detectar idioma del mensaje con mayor precisión
+function detectLanguage(text: string, previousLanguage: 'es' | 'en' = 'es'): 'es' | 'en' {
   const lowerText = text.toLowerCase();
   
-  // Detectar confirmación explícita
-  const confirmPattern = /confirmar\s+(?:pedido\s+(?:de\s+)?)?(\w+)/i;
-  const confirmMatch = text.match(confirmPattern);
+  // Detectar tildes o ñ (definitivamente español)
+  if (/[áéíóúñ¿¡]/i.test(text)) {
+    return 'es';
+  }
   
-  if (confirmMatch) {
-    const cocktailName = confirmMatch[1].toLowerCase();
-    for (const [key, recipe] of Object.entries(COCKTAIL_RECIPES)) {
-      if ((recipe as any).name.toLowerCase().includes(cocktailName) || key.includes(cocktailName)) {
-        return { cocktailId: key, recipe, confirmed: true };
-      }
+  // Palabras ÚNICAS en inglés (no existen en español)
+  const uniqueEnglishWords = [
+    'what', 'do', 'you', 'have', 'drinks', 'want', 'give', 
+    'can', 'make', 'the', 'and', 'cocktails', 'available',
+    'please', 'would', 'could', 'should'
+  ];
+  
+  // Palabras ÚNICAS en español (no existen en inglés)
+  const uniqueSpanishWords = [
+    'qué', 'tienes', 'dame', 'quiero', 'hola', 'prepara',
+    'quisiera', 'gustaría', 'cócteles', 'tragos', 'bebidas',
+    'disponibles', 'favor', 'hazme', 'dime', 'un', 'una'
+  ];
+  
+  let englishScore = 0;
+  let spanishScore = 0;
+  
+  // Contar palabras únicas
+  uniqueEnglishWords.forEach(word => {
+    const regex = new RegExp(`\\b${word}\\b`, 'i');
+    if (regex.test(lowerText)) {
+      englishScore += 2; // Peso mayor
+    }
+  });
+  
+  uniqueSpanishWords.forEach(word => {
+    const regex = new RegExp(`\\b${word}\\b`, 'i');
+    if (regex.test(lowerText)) {
+      spanishScore += 2; // Peso mayor
+    }
+  });
+  
+  // Si hay score definitivo, usar ese idioma
+  if (englishScore > 0 && spanishScore === 0) return 'en';
+  if (spanishScore > 0 && englishScore === 0) return 'es';
+  
+  // Si ambos tienen score, el mayor gana
+  if (englishScore > spanishScore) return 'en';
+  if (spanishScore > englishScore) return 'es';
+  
+  // Si empate o sin coincidencias, mantener idioma anterior
+  return previousLanguage;
+}
+
+function detectCocktailRequest(text: string, language: 'es' | 'en' = 'es') {
+  const lowerText = text.toLowerCase();
+  
+  // Detectar confirmación de botón (NUEVO SISTEMA)
+  const buttonConfirmPattern = /^CONFIRM_ORDER_(.+)$/i;
+  const buttonMatch = text.match(buttonConfirmPattern);
+  
+  if (buttonMatch) {
+    const cocktailId = buttonMatch[1].toLowerCase();
+    const recipe = COCKTAIL_RECIPES[cocktailId as keyof typeof COCKTAIL_RECIPES];
+    if (recipe) {
+      return { cocktailId, recipe, confirmed: true, isButtonConfirm: true };
     }
   }
   
-  // Búsqueda normal de cócteles (sin confirmación)
+  // Búsqueda normal de cócteles - MEJORADA
+  // Primero buscar coincidencia exacta del nombre completo
   for (const [key, recipe] of Object.entries(COCKTAIL_RECIPES)) {
-    if (lowerText.includes((recipe as any).name.toLowerCase()) || lowerText.includes(key)) {
-      return { cocktailId: key, recipe, confirmed: false };
+    const recipeName = (recipe as any).name.toLowerCase();
+    if (lowerText.includes(recipeName)) {
+      return { cocktailId: key, recipe, confirmed: false, isButtonConfirm: false };
     }
   }
   
-  const keywords = ['quiero', 'dame', 'prepara', 'hazme', 'quisiera', 'me gustaría'];
-  const hasCocktailIntent = keywords.some(keyword => lowerText.includes(keyword));
+  // Luego buscar por palabras clave del coctel
+  if (lowerText.includes('mojito')) {
+    return { cocktailId: 'mojito', recipe: COCKTAIL_RECIPES.mojito, confirmed: false, isButtonConfirm: false };
+  }
+  if (lowerText.includes('margarita')) {
+    return { cocktailId: 'margarita', recipe: COCKTAIL_RECIPES.margarita, confirmed: false, isButtonConfirm: false };
+  }
+  if (lowerText.includes('cuba') && lowerText.includes('libre')) {
+    return { cocktailId: 'cuba_libre', recipe: COCKTAIL_RECIPES.cuba_libre, confirmed: false, isButtonConfirm: false };
+  }
+  if (lowerText.includes('paloma')) {
+    return { cocktailId: 'paloma', recipe: COCKTAIL_RECIPES.paloma, confirmed: false, isButtonConfirm: false };
+  }
+  if ((lowerText.includes('vodka') && lowerText.includes('citrus')) || (lowerText.includes('vodka') && lowerText.includes('cítrus'))) {
+    return { cocktailId: 'vodka_citrus', recipe: COCKTAIL_RECIPES.vodka_citrus, confirmed: false, isButtonConfirm: false };
+  }
+  if ((lowerText.includes('vodka') && lowerText.includes('soda')) || (lowerText.match(/\bvodka\b/) && !lowerText.includes('citrus'))) {
+    return { cocktailId: 'vodka_soda', recipe: COCKTAIL_RECIPES.vodka_soda, confirmed: false, isButtonConfirm: false };
+  }
+  if (lowerText.includes('tequila') && (lowerText.includes('sunrise') || lowerText.includes('amanecer'))) {
+    return { cocktailId: 'tequila_sunrise', recipe: COCKTAIL_RECIPES.tequila_sunrise, confirmed: false, isButtonConfirm: false };
+  }
+  if (lowerText.includes('ron') && lowerText.includes('collins')) {
+    return { cocktailId: 'ron_collins', recipe: COCKTAIL_RECIPES.ron_collins, confirmed: false, isButtonConfirm: false };
+  }
   
-  return hasCocktailIntent ? { intent: 'request', cocktailId: null, confirmed: false } : null;
+  // Detectar intención de pedir un cóctel
+  const intentKeywords = language === 'es' 
+    ? ['quiero', 'dame', 'prepara', 'hazme', 'quisiera', 'me gustaría', 'un ']
+    : ['want', 'make', 'prepare', 'would like', 'give me', 'can you make', 'get me'];
+    
+  const hasCocktailIntent = intentKeywords.some(keyword => lowerText.includes(keyword));
+  
+  return hasCocktailIntent ? { intent: 'request', cocktailId: null, confirmed: false, isButtonConfirm: false } : null;
 }
 
 function generateRaspberryPayload(recipe: any) {
@@ -104,7 +188,7 @@ async function sendToRaspberryPi(payload: any) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, conversationHistory = [] } = await request.json();
+    const { message, conversationHistory = [], previousLanguage = 'es' } = await request.json();
     const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
     if (!apiKey) {
@@ -114,17 +198,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Detectar idioma del mensaje (pasar idioma anterior)
+    const language = detectLanguage(message, previousLanguage);
+
     // Inicializar Google Generative AI
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
 
     // Detectar si hay solicitud de cóctel
-    const cocktailRequest = detectCocktailRequest(message);
+    const cocktailRequest = detectCocktailRequest(message, language);
 
-    // Sistema prompt mejorado con emotes y mejor formateo
+    // Sistema prompt mejorado bilingüe
     const isFirstMessage = conversationHistory.length === 0;
 
-    const systemPrompt = `Eres un barman profesional AI amable y cordial que ayuda a preparar cócteles usando un sistema IoT con bombas automáticas.
+    const systemPrompt = language === 'es' ? `Eres un barman profesional AI amable y cordial que ayuda a preparar cócteles usando un sistema IoT con bombas automáticas.
 
 **INGREDIENTES DISPONIBLES:**
 ${Object.entries(PUMP_CONFIG)
@@ -142,28 +229,74 @@ ${Object.entries(COCKTAIL_RECIPES)
   .join('\n')}
 
 **INSTRUCCIONES CRÍTICAS:**
-1. Responde en máximo 300 caracteres de forma concisa y directa
-2. ${isFirstMessage ? 'Saluda brevemente al usuario la PRIMERA VEZ (ejemplo: "¡Hola! Bienvenido al barman automático 🍹")' : 'NO saludes - continúa la conversación naturalmente'}
-3. Usa SOLO 1 emoji por mensaje (preferiblemente 🍹 al mencionar cócteles)
-4. Mantén un tono profesional y cordial pero CONCISO
-5. Cuando menciones ingredientes, usa nombres legibles sin emojis (ejemplo: "ron, lima, soda" NO "🥃 ron, 🍋 lima, 💧 soda")
-6. Sé breve y directo en tus respuestas
+1. SIEMPRE responde ÚNICAMENTE en ESPAÑOL
+2. Máximo 180 caracteres - sé muy breve
+3. ${isFirstMessage ? 'Primera vez: "¡Hola! 🍹 ¿Qué coctel?"' : 'NO saludes'}
+4. Solo 1 emoji 🍹
+5. Nombres simples de ingredientes
 
-**REGLAS DE CONFIRMACIÓN OBLIGATORIAS:**
-7. Si el usuario pide un cóctel que EXISTE, responde con los ingredientes y cantidades, luego EXIGE confirmación explícita
-8. Para confirmar, el usuario DEBE escribir exactamente: "CONFIRMAR PEDIDO DE [NOMBRE_COCKTAIL]"
-9. NO prepares NINGÚN cóctel hasta que el usuario escriba la confirmación exacta
-10. Si el usuario pide un cóctel que NO existe (ej: "Mojito 2"), responde que NO existe y menciona el nombre correcto disponible
+**REGLAS ABSOLUTAS - PROHIBIDO:**
+❌ NUNCA digas "para confirmar"
+❌ NUNCA digas "escribe"
+❌ NUNCA digas "CONFIRMAR PEDIDO"
+❌ NUNCA pidas que escriban algo
+✅ Solo menciona el coctel e ingredientes
 
-**EJEMPLOS DE RESPUESTAS CONCISAS:**
-Usuario: "Quiero un mojito"
-Tú: "🍹 Mojito: 50ml ron, 30ml lima, 100ml soda. Para confirmar escribe: CONFIRMAR PEDIDO DE MOJITO"
+**FORMATO OBLIGATORIO cuando piden coctel:**
+"🍹 [Nombre]: [ingredientes con ml]"
 
-Usuario: "Quiero un mojito 2"
-Tú: "No tenemos 'Mojito 2'. Solo disponemos de Mojito. Para pedirlo escribe: CONFIRMAR PEDIDO DE MOJITO"
+**EJEMPLOS:**
+Usuario: "Quiero mojito"
+Tú: "🍹 Mojito: 50ml ron, 30ml lima, 100ml soda"
+
+Usuario: "dame vodka"
+Tú: "🍹 Vodka Soda: 50ml vodka, 100ml soda, 20ml lima"
 
 Usuario: "Hola"
-Tú: "¡Hola! Bienvenido al barman automático 🍹 Tenemos 8 cócteles disponibles. ¿Cuál te gustaría?"`;
+Tú: "¡Hola! 🍹 ¿Qué coctel te preparo?"` : 
+`You are a friendly professional AI bartender that helps prepare cocktails using an IoT system with automatic pumps.
+
+**AVAILABLE INGREDIENTS:**
+${Object.entries(PUMP_CONFIG)
+  .map(([key, pump]) => `- ${pump.ingredient.replace('_', ' ')}`)
+  .join('\n')}
+
+**AVAILABLE COCKTAILS:**
+${Object.entries(COCKTAIL_RECIPES)
+  .map(([key, recipe]) => {
+    const ingredients = Object.keys((recipe as any).ingredients)
+      .map((ing: string) => ing.replace('_', ' '))
+      .join(', ');
+    return `- **${(recipe as any).name}**: ${ingredients}`;
+  })
+  .join('\n')}
+
+**CRITICAL INSTRUCTIONS:**
+1. ALWAYS respond ONLY in ENGLISH
+2. Maximum 180 characters - be very brief
+3. ${isFirstMessage ? 'First time: "Hello! 🍹 What cocktail?"' : 'NO greetings'}
+4. Only 1 emoji 🍹
+5. Simple ingredient names
+
+**ABSOLUTE RULES - FORBIDDEN:**
+❌ NEVER say "to confirm"
+❌ NEVER say "write"
+❌ NEVER say "CONFIRM ORDER"
+❌ NEVER ask them to write anything
+✅ Only mention cocktail and ingredients
+
+**MANDATORY FORMAT when requesting cocktail:**
+"🍹 [Name]: [ingredients with ml]"
+
+**EXAMPLES:**
+User: "I want mojito"
+You: "🍹 Mojito: 50ml rum, 30ml lime, 100ml soda"
+
+User: "give me vodka"
+You: "🍹 Vodka Soda: 50ml vodka, 100ml soda, 20ml lime"`;
+
+    // LOG para debugging
+    console.log('🔍 Idioma detectado:', language, '| Mensaje:', message);
 
     // Construir historial de conversación
     const contents = [
@@ -185,36 +318,54 @@ Tú: "¡Hola! Bienvenido al barman automático 🍹 Tenemos 8 cócteles disponib
 
     const response = await result.response;
     const responseText = response.text();
+    
+    // LOG de respuesta
+    console.log('💬 Respuesta IA:', responseText);
 
     // Preparar respuesta
     const finalResponse: any = {
       text: responseText,
       shouldPrepare: false,
+      showConfirmButton: false,
+      cocktailId: null,
       recipe: null,
       raspberryPayload: null,
-      raspberryResponse: null
+      raspberryResponse: null,
+      language
     };
 
-    // Si se detectó un cóctel Y está confirmado, preparar y enviar
-    if (cocktailRequest?.cocktailId && cocktailRequest.confirmed) {
+    // Si se detectó un cóctel
+    if (cocktailRequest?.cocktailId) {
       const recipe = COCKTAIL_RECIPES[cocktailRequest.cocktailId as keyof typeof COCKTAIL_RECIPES];
-      finalResponse.shouldPrepare = true;
-      finalResponse.recipe = recipe;
-      finalResponse.raspberryPayload = generateRaspberryPayload(recipe);
       
-      console.log('🍹 RASPBERRY PI PAYLOAD:', JSON.stringify(finalResponse.raspberryPayload, null, 2));
+      console.log('🍸 Cóctel detectado:', cocktailRequest.cocktailId, '| Confirmado:', cocktailRequest.confirmed);
       
-      // Enviar al Raspberry Pi
-      try {
-        const raspberryResult = await sendToRaspberryPi(finalResponse.raspberryPayload);
-        finalResponse.raspberryResponse = raspberryResult;
-        console.log('✅ Cóctel enviado a preparar exitosamente');
-      } catch (error: any) {
-        console.error('❌ Error al enviar al Raspberry Pi:', error.message);
-        finalResponse.raspberryResponse = { 
-          error: true, 
-          message: `Error al comunicarse con el Raspberry Pi: ${error.message}` 
-        };
+      // Si es confirmación por botón, preparar
+      if (cocktailRequest.confirmed && cocktailRequest.isButtonConfirm) {
+        finalResponse.shouldPrepare = true;
+        finalResponse.recipe = recipe;
+        finalResponse.raspberryPayload = generateRaspberryPayload(recipe);
+        
+        console.log('🍹 RASPBERRY PI PAYLOAD:', JSON.stringify(finalResponse.raspberryPayload, null, 2));
+        
+        // Enviar al Raspberry Pi
+        try {
+          const raspberryResult = await sendToRaspberryPi(finalResponse.raspberryPayload);
+          finalResponse.raspberryResponse = raspberryResult;
+          console.log('✅ Cóctel enviado a preparar exitosamente');
+        } catch (error: any) {
+          console.error('❌ Error al enviar al Raspberry Pi:', error.message);
+          finalResponse.raspberryResponse = { 
+            error: true, 
+            message: `Error al comunicarse con el Raspberry Pi: ${error.message}` 
+          };
+        }
+      } else if (!cocktailRequest.confirmed) {
+        // Mostrar botón de confirmación
+        finalResponse.showConfirmButton = true;
+        finalResponse.cocktailId = cocktailRequest.cocktailId;
+        finalResponse.recipe = recipe;
+        console.log('✨ Mostrando botón de confirmación para:', cocktailRequest.cocktailId);
       }
     }
 

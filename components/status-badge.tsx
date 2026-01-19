@@ -4,24 +4,25 @@ import type { ChatState } from "./chat-container"
 
 interface StatusBadgeProps {
   state: ChatState
+  language?: 'es' | 'en'
 }
 
-export function StatusBadge({ state }: StatusBadgeProps) {
+export function StatusBadge({ state, language = 'es' }: StatusBadgeProps) {
   const statusConfig = {
     conversing: {
-      label: "Listo",
+      label: language === 'es' ? "Listo" : "Ready",
       icon: "✨",
       colors: "bg-primary/20 text-primary border border-primary/50",
     },
     preparing: {
-      label: "Preparando",
+      label: language === 'es' ? "Preparando" : "Preparing",
       icon: "⏳",
-      colors: "bg-secondary/20 text-secondary border border-secondary/50 animate-pulse-neon",
+      colors: "bg-orange-500/20 text-orange-500 border border-orange-500/50 animate-pulse",
     },
     ready: {
-      label: "¡Listo!",
+      label: language === 'es' ? "¡Listo!" : "Ready!",
       icon: "✅",
-      colors: "bg-primary/20 text-primary border border-primary/50 animate-pulse-neon",
+      colors: "bg-green-500/20 text-green-500 border border-green-500/50 animate-pulse",
     },
   }
 
@@ -29,7 +30,7 @@ export function StatusBadge({ state }: StatusBadgeProps) {
 
   return (
     <div
-      className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs sm:text-sm font-semibold transition-all ${config.colors}`}
+      className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs sm:text-sm font-semibold transition-all shadow-sm ${config.colors}`}
     >
       <span>{config.icon}</span>
       <span>{config.label}</span>
