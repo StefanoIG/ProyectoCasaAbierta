@@ -1,97 +1,91 @@
 {
-    "pumps": {
-        "pump_1": {
-            "name": "Bomba 1 (Jugo)",
-            "pin": 17,
-            "value": "jugo"
-        },
-        "pump_2": {
-            "name": "Bomba 2 (Cola)",
-            "pin": 27,
-            "value": "cola"
-        },
-        "pump_3": {
-            "name": "Bomba 3 (Bacardi)",
-            "pin": 22,
-            "value": "bacardi"
-        },
-        "pump_4": {
-            "name": "Bomba 4 (Cola)",
-            "pin": 24,
-            "value": "cola"
-        },
-        "pump_5": {
-            "name": "Bomba 5 (Tequila)",
-            "pin": 25,
-            "value": "tequila"
-        },
-        "pump_6": {
-            "name": "Bomba 6 (Tequila)",
-            "pin": 23,
-            "value": "tequila"
-        }
+  "config": {
+    "pump_1": {
+      "label": "Ron",
+      "pin": 17,
+      "flow_rate": 3.7
     },
-    "recipes": {
-        "cuba_libre": {
-            "name": "Cuba Libre",
-            "description": "Ron Bacardi con Cola",
-            "ingredients": {
-                "bacardi": 50,
-                "cola": 150
-            }
-        },
-        "bacardi_jugo": {
-            "name": "Bacardi con Jugo",
-            "description": "Ron con jugo de frutas",
-            "ingredients": {
-                "bacardi": 50,
-                "jugo": 150
-            }
-        },
-        "tequila_cola": {
-            "name": "Tequila Cola",
-            "description": "Tequila con Cola",
-            "ingredients": {
-                "tequila": 50,
-                "cola": 150
-            }
-        },
-        "tequila_jugo": {
-            "name": "Tequila con Jugo",
-            "description": "Tequila con jugo de frutas",
-            "ingredients": {
-                "tequila": 50,
-                "jugo": 150
-            }
-        },
-        "bacardi_puro": {
-            "name": "Bacardi Solo",
-            "description": "Ron Bacardi solo",
-            "ingredients": {
-                "bacardi": 60
-            }
-        },
-        "tequila_puro": {
-            "name": "Tequila Solo",
-            "description": "Tequila derecho",
-            "ingredients": {
-                "tequila": 60
-            }
-        },
-        "mezcla_tropical": {
-            "name": "Mezcla Tropical",
-            "description": "Bacardi con jugo y cola",
-            "ingredients": {
-                "bacardi": 40,
-                "jugo": 80,
-                "cola": 80
-            }
-        }
+    "pump_2": {
+      "label": "Mix Limón (Sweet & Sour)",
+      "pin": 27,
+      "flow_rate": 3.8
     },
-    "config": {
-        "segundos_por_ml": 0.5,
-        "max_preparation_time": 60,
-        "cleanup_delay": 2,
-        "notas": "Calibración por bomba en código Python. Pin 17=Jugo, 27=Cola, 22=Bacardi, 24=Cola, 25=Tequila, 23=Tequila"
+    "pump_3": {
+      "label": "Gin",
+      "pin": 22,
+      "flow_rate": 3.5
+    },
+    "pump_4": {
+      "label": "Jugo Naranja",
+      "pin": 24,
+      "flow_rate": 4.0
+    },
+    "pump_5": {
+      "label": "Vodka",
+      "pin": 25,
+      "flow_rate": 2.1
+    },
+    "pump_6": {
+      "label": "Tequila",
+      "pin": 23,
+      "flow_rate": 2.0
     }
+  },
+  "menu": [
+    {
+      "id": 1,
+      "name": "Margarita",
+      "description": "Tequila + Mix Limón",
+      "ingredients": [
+        { "pump": "pump_6", "ml": 60 },
+        { "pump": "pump_2", "ml": 90 }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Daiquiri",
+      "description": "Ron + Mix Limón",
+      "ingredients": [
+        { "pump": "pump_1", "ml": 60 },
+        { "pump": "pump_2", "ml": 90 }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Gimlet",
+      "description": "Gin + Mix Limón",
+      "ingredients": [
+        { "pump": "pump_3", "ml": 60 },
+        { "pump": "pump_2", "ml": 60 }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Destornillador",
+      "description": "Vodka + Naranja",
+      "ingredients": [
+        { "pump": "pump_5", "ml": 50 },
+        { "pump": "pump_4", "ml": 150 }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Vodka Sour",
+      "description": "Vodka + Mix Limón",
+      "ingredients": [
+        { "pump": "pump_5", "ml": 60 },
+        { "pump": "pump_2", "ml": 90 }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Rum Punch",
+      "description": "Ron + Naranja + Limón",
+      "ingredients": [
+        { "pump": "pump_1", "ml": 50 },
+        { "pump": "pump_4", "ml": 100 },
+        { "pump": "pump_2", "ml": 30 }
+      ]
+    }
+  ]
 }
