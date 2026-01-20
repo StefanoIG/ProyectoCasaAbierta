@@ -55,57 +55,21 @@ export function ChatContainer() {
   }
 
   const handleConfirmCocktail = async (cocktailId: string) => {
-    // Enviar confirmación al servidor usando el nuevo sistema
-    const confirmMessage = `CONFIRM_ORDER_${cocktailId}`
-    
-    // Agregar mensaje de usuario (oculto visualmente)
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: confirmMessage,
-      timestamp: new Date(),
-      language
-    }
-
-    // No añadir el mensaje de confirmación a la UI
+    // ✅ CONFIRMACIÓN DIRECTA A RASPBERRY PI - SIN IA - SIN RATE LIMIT
     setIsLoading(true)
 
     try {
-      const conversationHistory = messages.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }))
-
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ 
-          message: confirmMessage,
-          conversationHistory: conversationHistory,
-          previousLanguage: language
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        
-        // Manejar rate limit específicamente
-        if (response.status === 429 && errorData.isRateLimit) {
-          throw new Error(errorData.error)
-        }
-        
-        throw new Error(errorData.error || "Error en la respuesta del servidor")
+      // Importar recetas desde pi.json
+      const piConfig = await import("@/pi.json")
+      const recipe = piConfig.default.recipes[cocktailId as keyof typeof piConfig.default.recipes]
+      
+      if (!recipe) {
+        throw new Error(language === 'es' 
+          ? "Receta no encontrada" 
+          : "Recipe not found")
       }
 
-      const data = await response.json()
-
-      // Actualizar idioma si viene en la respuesta
-      if (data.language) {
-        setLanguage(data.language)
-      }
-
+      // Mensaje de preparación
       const preparingText = language === 'es' 
         ? '¡Perfecto! Preparando tu coctel... 🍹' 
         : 'Perfect! Preparing your cocktail... 🍹'
@@ -115,34 +79,80 @@ export function ChatContainer() {
         role: "assistant",
         content: preparingText,
         timestamp: new Date(),
-        language: data.language || language
+        language
       }
       addMessage(assistantMessage)
+      setState("preparing")
 
-      if (data.shouldPrepare && data.raspberryPayload) {
-        setState("preparing")
-        console.log("🍹 INICIANDO PREPARACIÓN:", data.raspberryPayload)
-
-        setTimeout(() => {
-          setState("ready")
-          const readyText = language === 'es'
-            ? '✅ ¡Tu coctel está listo! Disfrútalo.'
-            : '✅ Your cocktail is ready! Enjoy.'
-          
-          const readyMessage: Message = {
-            id: (Date.now() + 2).toString(),
-            role: "assistant",
-            content: readyText,
-            timestamp: new Date(),
-            language: data.language || language
-          }
-          addMessage(readyMessage)
-        }, 5000)
+      // Generar payload para Raspberry Pi (misma lógica que generateRaspberryPayload)
+      const pumps: any = {}
+      let totalMl = 0
+      
+      for (const [ingredientName, ml] of Object.entries(recipe.ingredients)) {
+        const pumpConfig = piConfig.default.pumps.find((p: any) => p.ingredient === ingredientName)
+        if (!pumpConfig) continue
+        
+        const mlValue = ml as number
+        const mlPerSecond = 1 / piConfig.default.config.segundos_por_ml // 0.5s/ml → 2ml/s
+        const durationMs = (mlValue / mlPerSecond) * 1000
+        
+        pumps[`pump${pumpConfig.numero}`] = {
+          gpio_pin: pumpConfig.gpio_pin,
+          ingredient: ingredientName,
+          ml: mlValue,
+          duration_ms: Math.round(durationMs)
+        }
+        
+        totalMl += mlValue
       }
+
+      const payload = {
+        recipe_id: cocktailId,
+        recipe_name: recipe.name,
+        pumps,
+        total_ml: totalMl,
+        timestamp: Date.now()
+      }
+
+      console.log("🍹 ENVIANDO DIRECTAMENTE A RASPBERRY PI:", payload)
+
+      // Enviar directo a Raspberry Pi
+      const raspberryUrl = 'http://192.168.1.23:5000/hacer_trago'
+      const response = await fetch(raspberryUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Error HTTP: ${response.status}`)
+      }
+
+      const result = await response.json()
+      console.log('✅ Respuesta de Raspberry Pi:', result)
+
+      // Simular tiempo de preparación (5 segundos)
+      setTimeout(() => {
+        setState("ready")
+        const readyText = language === 'es'
+          ? '✅ ¡Tu coctel está listo! Disfrútalo.'
+          : '✅ Your cocktail is ready! Enjoy.'
+        
+        const readyMessage: Message = {
+          id: (Date.now() + 2).toString(),
+          role: "assistant",
+          content: readyText,
+          timestamp: new Date(),
+          language
+        }
+        addMessage(readyMessage)
+      }, 5000)
+
     } catch (error) {
       console.error("Error:", error)
       
-      // Obtener mensaje de error (puede venir del rate limit o error genérico)
       const errorText = error instanceof Error 
         ? error.message 
         : (language === 'es'
@@ -157,6 +167,7 @@ export function ChatContainer() {
         language
       }
       addMessage(errorMessage)
+      setState("conversing")
     } finally {
       setIsLoading(false)
     }
