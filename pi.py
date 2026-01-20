@@ -20,10 +20,6 @@ preparando_lock = threading.Lock()
 # ============================================
 # ⚙️ CALIBRACIÓN INDIVIDUAL (BASADA EN TU EXCEL)
 # ============================================
-# Calculamos "Segundos por 1 Unidad" usando tu regla de 3:
-# Fórmula: 10 segundos / Cantidad promedio del Excel
-# Esto hace que las bombas lentas (como la 6) se queden prendidas más tiempo automáticamente.
-
 CALIBRACION_POR_PIN = {
     # Bomba 1 (Pin 17): Promedio ~0.35 -> 10 / 0.35 = 28.57 seg/unidad
     17: 10.0 / 0.35, 
@@ -41,7 +37,7 @@ CALIBRACION_POR_PIN = {
     25: 10.0 / 0.22,
     
     # Bomba 6 (Pin 23): Promedio ~0.20 (La más lenta) -> 50.0 seg/unidad
-    23: 10.0 / 0.20   
+    23: 10.0 / 0.20    
 }
 
 # Valor por defecto si conectas una bomba nueva no calibrada
@@ -161,13 +157,18 @@ def procesar_pedidos():
             start_total = time.time()
             
             # Ejecutamos instrucción por instrucción
-            # NO HAY TIMEOUT GLOBAL: Si son 6 bombas, espera a las 6.
             for i, step in enumerate(instructions):
-                print(f"[{i+1}/{len(instructions)}] Sirviendo {step['amount']} de {step['name']}...")
+                # Mensaje ligeramente diferente si es prueba o receta
+                if step['amount'] > 0:
+                    msg = f"Sirviendo {step['amount']} de {step['name']}"
+                else:
+                    msg = f"Prueba manual de {step['name']}"
+
+                print(f"[{i+1}/{len(instructions)}] {msg}...")
                 
                 verter(step['pin'], step['duration'], step['name'])
                 
-                # Pausa técnica para evitar caída de voltaje si la fuente es débil
+                # Pausa técnica entre bombas
                 if i < len(instructions) - 1:
                     time.sleep(1.0) 
             
@@ -200,13 +201,10 @@ def hacer_trago():
     instructions, result_name = prepare_preparation_plan(recipe_id)
     
     if not instructions:
-        # result_name contiene el mensaje de error en este caso
         return jsonify({"status": "error", "mensaje": result_name}), 400
     
-    # Calculamos tiempo total estimado
     total_est = sum(step['duration'] for step in instructions) + len(instructions)
     
-    # Encolamos el trabajo ya masticado
     job = {
         "recipe_name": result_name,
         "instructions": instructions,
@@ -221,6 +219,69 @@ def hacer_trago():
         "cola": pedidos_queue.qsize()
     })
 
+# ============================================
+# NUEVO ENDPOINT DE PRUEBA MANUAL
+# ============================================
+@app.route('/prueba_manual', methods=['POST'])
+def prueba_manual():
+    """
+    Recibe una lista de bombas y segundos para activar manualmente.
+    Payload esperado:
+    {
+        "acciones": [
+            {"pin": 17, "segundos": 2},
+            {"pin": 27, "segundos": 5}
+        ]
+    }
+    """
+    data = request.json
+    acciones = data.get('acciones', [])
+    
+    if not acciones or not isinstance(acciones, list):
+        return jsonify({"status": "error", "mensaje": "Se requiere una lista de 'acciones'"}), 400
+    
+    instructions = []
+    total_time_est = 0
+    
+    # Construimos la estructura de trabajo manual
+    for item in acciones:
+        try:
+            pin = int(item.get('pin'))
+            secs = float(item.get('segundos'))
+            
+            if secs <= 0: continue
+            
+            # Creamos una instrucción compatible con el worker
+            instructions.append({
+                "name": f"TEST_PIN_{pin}",
+                "pin": pin,
+                "amount": 0, # 0 indica que es prueba técnica
+                "duration": secs,
+                "rate_used": 0
+            })
+            total_time_est += secs
+            
+        except (ValueError, TypeError):
+            continue # Ignoramos datos mal formados
+            
+    if not instructions:
+        return jsonify({"status": "error", "mensaje": "No hay acciones válidas para ejecutar"}), 400
+        
+    # Encolamos el trabajo de prueba
+    job = {
+        "recipe_name": "🛠️ PRUEBA MANUAL",
+        "instructions": instructions,
+        "timestamp": time.time()
+    }
+    pedidos_queue.put(job)
+    
+    return jsonify({
+        "status": "success",
+        "mensaje": f"Encolando prueba de {len(instructions)} pasos",
+        "tiempo_estimado": f"{total_time_est:.1f}s",
+        "cola_actual": pedidos_queue.qsize()
+    })
+
 @app.route('/estado', methods=['GET'])
 def estado():
     with preparando_lock:
@@ -232,7 +293,6 @@ def estado():
 
 @app.route('/calibracion', methods=['GET'])
 def ver_calibracion():
-    """Endpoint útil para ver cómo está calculando los tiempos"""
     return jsonify(CALIBRACION_POR_PIN)
 
 # ============================================
@@ -242,11 +302,8 @@ if __name__ == '__main__':
     try:
         print("\n--- INICIANDO BARTENDER IA ---")
         if setup_gpio():
-            # Arrancar Worker
             t = threading.Thread(target=procesar_pedidos, daemon=True)
             t.start()
-            
-            # Arrancar Flask
             app.run(host='0.0.0.0', port=5000, debug=False)
         else:
             print("Error fatal en configuración GPIO")
