@@ -1,124 +1,90 @@
 {
     "pumps": {
         "pump_1": {
-            "name": "Bomba 1 (Ron)",
+            "name": "Bomba 1 (Jugo)",
             "pin": 17,
-            "value": "ron"
+            "value": "jugo"
         },
         "pump_2": {
-            "name": "Bomba 2 (Vodka)",
+            "name": "Bomba 2 (Cola)",
             "pin": 27,
-            "value": "vodka"
+            "value": "cola"
         },
         "pump_3": {
-            "name": "Bomba 3 (Tequila)",
+            "name": "Bomba 3 (Bacardi)",
             "pin": 22,
-            "value": "tequila"
+            "value": "bacardi"
         },
         "pump_4": {
-            "name": "Bomba 4 (Jugo de Lima)",
-            "pin": 23,
-            "value": "jugo_lima"
+            "name": "Bomba 4 (Cola)",
+            "pin": 24,
+            "value": "cola"
         },
         "pump_5": {
-            "name": "Bomba 5 (Triple Sec)",
-            "pin": 24,
-            "value": "triple_sec"
+            "name": "Bomba 5 (Tequila)",
+            "pin": 25,
+            "value": "tequila"
         },
         "pump_6": {
-            "name": "Bomba 6 (Soda)",
-            "pin": 25,
-            "value": "soda"
+            "name": "Bomba 6 (Tequila)",
+            "pin": 23,
+            "value": "tequila"
         }
     },
     "recipes": {
-        "mojito": {
-            "name": "Mojito",
-            "description": "Clásico cubano refrescante",
-            "ingredients": {
-                "ron": 50,
-                "jugo_lima": 30,
-                "soda": 100
-            }
-        },
-        "margarita": {
-            "name": "Margarita",
-            "description": "El clásico mexicano",
-            "ingredients": {
-                "tequila": 50,
-                "triple_sec": 25,
-                "jugo_lima": 25
-            }
-        },
-        "vodka_soda": {
-            "name": "Vodka Soda",
-            "description": "Simple y refrescante",
-            "ingredients": {
-                "vodka": 50,
-                "soda": 120,
-                "jugo_lima": 15
-            }
-        },
         "cuba_libre": {
             "name": "Cuba Libre",
-            "description": "Ron, lima y cola",
+            "description": "Ron Bacardi con Cola",
             "ingredients": {
-                "ron": 60,
-                "jugo_lima": 20,
-                "soda": 120
+                "bacardi": 50,
+                "cola": 150
             }
         },
-        "paloma": {
-            "name": "Paloma",
-            "description": "Tequila refrescante",
+        "bacardi_jugo": {
+            "name": "Bacardi con Jugo",
+            "description": "Ron con jugo de frutas",
             "ingredients": {
-                "tequila": 60,
-                "jugo_lima": 30,
-                "soda": 110
+                "bacardi": 50,
+                "jugo": 150
             }
         },
-        "vodka_citrus": {
-            "name": "Vodka Citrus",
-            "description": "Vodka con toque cítrico",
-            "ingredients": {
-                "vodka": 45,
-                "triple_sec": 15,
-                "jugo_lima": 20,
-                "soda": 100
-            }
-        },
-        "tequila_sunrise": {
-            "name": "Tequila Sunrise",
-            "description": "Tequila tropical",
+        "tequila_cola": {
+            "name": "Tequila Cola",
+            "description": "Tequila con Cola",
             "ingredients": {
                 "tequila": 50,
-                "jugo_lima": 40,
-                "soda": 90
+                "cola": 150
             }
         },
-        "ron_collins": {
-            "name": "Ron Collins",
-            "description": "Ron con soda y lima",
+        "tequila_jugo": {
+            "name": "Tequila con Jugo",
+            "description": "Tequila con jugo de frutas",
             "ingredients": {
-                "ron": 50,
-                "jugo_lima": 35,
-                "soda": 115
+                "tequila": 50,
+                "jugo": 150
             }
         },
-        "tequila_simple": {
-            "name": "Tequila Simple",
-            "description": "Tequila solo con lima",
+        "bacardi_puro": {
+            "name": "Bacardi Solo",
+            "description": "Ron Bacardi solo",
             "ingredients": {
-                "tequila": 60,
-                "jugo_lima": 30
+                "bacardi": 60
             }
         },
-        "vodka_puro": {
-            "name": "Vodka con Lima",
-            "description": "Vodka y un toque de lima",
+        "tequila_puro": {
+            "name": "Tequila Solo",
+            "description": "Tequila derecho",
             "ingredients": {
-                "vodka": 60,
-                "jugo_lima": 20
+                "tequila": 60
+            }
+        },
+        "mezcla_tropical": {
+            "name": "Mezcla Tropical",
+            "description": "Bacardi con jugo y cola",
+            "ingredients": {
+                "bacardi": 40,
+                "jugo": 80,
+                "cola": 80
             }
         }
     },
@@ -126,6 +92,6 @@
         "segundos_por_ml": 0.5,
         "max_preparation_time": 60,
         "cleanup_delay": 2,
-        "notas": "segundos_por_ml: calibrar según tu bomba. max_preparation_time: timeout de seguridad. cleanup_delay: pausa entre ingredientes"
+        "notas": "Calibración por bomba en código Python. Pin 17=Jugo, 27=Cola, 22=Bacardi, 24=Cola, 25=Tequila, 23=Tequila"
     }
 }
