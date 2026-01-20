@@ -18,30 +18,39 @@ preparando = False
 preparando_lock = threading.Lock()
 
 # ============================================
-# ⚙️ CALIBRACIÓN INDIVIDUAL (BASADA EN TU EXCEL)
+# ⚙️ CALIBRACIÓN CORREGIDA (VOLUMEN REAL)
 # ============================================
+# Interpretación: Los valores del Excel (ej. 0.35) son en realidad 35ml.
+# Fórmula: 10.0 segundos / XX ml
+
 CALIBRACION_POR_PIN = {
-    # Bomba 1 (Pin 17): Promedio ~0.35 -> 10 / 0.35 = 28.57 seg/unidad
-    17: 10.0 / 0.35, 
+    # Bomba 1 (Pin 17): Promedio ~35 ml en 10s
+    # Factor: 0.285 seg/ml
+    17: 10.0 / 35.0, 
     
-    # Bomba 2 (Pin 27): Promedio ~0.38 -> 10 / 0.38 = 26.31 seg/unidad
-    27: 10.0 / 0.38,
+    # Bomba 2 (Pin 27): Promedio ~38 ml en 10s
+    # Factor: 0.263 seg/ml
+    27: 10.0 / 38.0,
     
-    # Bomba 3 (Pin 22): Promedio ~0.35 -> 10 / 0.35 = 28.57 seg/unidad
-    22: 10.0 / 0.35,
+    # Bomba 3 (Pin 22): Promedio ~35 ml en 10s
+    # Factor: 0.285 seg/ml
+    22: 10.0 / 35.0,
     
-    # Bomba 4 (Pin 24): Promedio ~0.40 (La más rápida) -> 25.0 seg/unidad
-    24: 10.0 / 0.40,
+    # Bomba 4 (Pin 24): Promedio ~40 ml en 10s (La más rápida)
+    # Factor: 0.25 seg/ml
+    24: 10.0 / 40.0,
     
-    # Bomba 5 (Pin 25): Promedio ~0.22 -> 45.45 seg/unidad
-    25: 10.0 / 0.22,
+    # Bomba 5 (Pin 25): Promedio ~22 ml en 10s
+    # Factor: 0.45 seg/ml
+    25: 10.0 / 22.0,
     
-    # Bomba 6 (Pin 23): Promedio ~0.20 (La más lenta) -> 50.0 seg/unidad
-    23: 10.0 / 0.20    
+    # Bomba 6 (Pin 23): Promedio ~20 ml en 10s (La más lenta)
+    # Factor: 0.50 seg/ml
+    23: 10.0 / 20.0    
 }
 
-# Valor por defecto si conectas una bomba nueva no calibrada
-DEFAULT_RATE = 30.0 
+# Valor por defecto (30ml en 10s)
+DEFAULT_RATE = 10.0 / 30.0
 
 # ============================================
 # FUNCIONES AUXILIARES
@@ -70,7 +79,7 @@ def setup_gpio():
         
         # Mostramos la calibración cargada para esa bomba
         rate = CALIBRACION_POR_PIN.get(pin, DEFAULT_RATE)
-        print(f"   ✓ {pump_info['name']} (Pin {pin}) -> Calibración: {rate:.1f} seg/ml")
+        print(f"   ✓ {pump_info['name']} (Pin {pin}) -> Calibración: {rate:.4f} seg/ml")
         
     return True
 
@@ -79,8 +88,7 @@ def setup_gpio():
 # ============================================
 def prepare_preparation_plan(recipe_id):
     """
-    Convierte un ID de receta en una lista de instrucciones para las bombas.
-    Calcula los tiempos exactos usando la calibración individual.
+    Convierte un ID de receta en una lista de instrucciones.
     """
     config = load_config()
     if not config: return None, "Error de Config"
@@ -91,7 +99,7 @@ def prepare_preparation_plan(recipe_id):
         return None, f"Receta '{recipe_id}' no encontrada"
     
     recipe = recipes[recipe_id]
-    ingredients_needed = recipe['ingredients'] # Ej: {"ron": 50, "cola": 100}
+    ingredients_needed = recipe['ingredients'] 
     
     plan = []
     available_pumps = config.get('pumps', {})
@@ -111,8 +119,7 @@ def prepare_preparation_plan(recipe_id):
         
         pin = pump_match['pin']
         
-        # 3. CÁLCULO MAGISTRAL DE TIEMPO
-        # Usamos la calibración específica de este PIN
+        # 3. CÁLCULO DE TIEMPO (AHORA CORREGIDO)
         rate = CALIBRACION_POR_PIN.get(pin, DEFAULT_RATE)
         duration = amount_needed * rate
         
@@ -128,7 +135,7 @@ def prepare_preparation_plan(recipe_id):
 
 def verter(pin, duration, name):
     """Activa el relé por el tiempo especificado"""
-    print(f"   Running PIN {pin} ({name}) por {duration:.1f}s...")
+    print(f"   Running PIN {pin} ({name}) por {duration:.2f}s...")
     GPIO.output(pin, GPIO.LOW)  # ON
     time.sleep(duration)
     GPIO.output(pin, GPIO.HIGH) # OFF
@@ -158,22 +165,21 @@ def procesar_pedidos():
             
             # Ejecutamos instrucción por instrucción
             for i, step in enumerate(instructions):
-                # Mensaje ligeramente diferente si es prueba o receta
                 if step['amount'] > 0:
-                    msg = f"Sirviendo {step['amount']} de {step['name']}"
+                    msg = f"Sirviendo {step['amount']}ml de {step['name']}"
                 else:
                     msg = f"Prueba manual de {step['name']}"
 
-                print(f"[{i+1}/{len(instructions)}] {msg}...")
+                print(f"[{i+1}/{len(instructions)}] {msg} (Tiempo: {step['duration']:.2f}s)...")
                 
                 verter(step['pin'], step['duration'], step['name'])
                 
                 # Pausa técnica entre bombas
                 if i < len(instructions) - 1:
-                    time.sleep(1.0) 
+                    time.sleep(0.5) 
             
             total_time = time.time() - start_total
-            print(f"\n✅ {recipe_name} LISTO en {total_time:.1f}s")
+            print(f"\n✅ {recipe_name} LISTO en {total_time:.2f}s")
             print(f"{'='*50}\n")
             
         except Exception as e:
@@ -190,20 +196,19 @@ def procesar_pedidos():
 @app.route('/hacer_trago', methods=['POST'])
 def hacer_trago():
     data = request.json
-    recipe_id = data.get('recipe_id') # Esperamos {"recipe_id": "mojito"}
+    recipe_id = data.get('recipe_id') 
     
     if not recipe_id:
         return jsonify({"status": "error", "mensaje": "Falta recipe_id"}), 400
         
     print(f"📥 Petición recibida: {recipe_id}")
     
-    # Validamos y creamos el plan ANTES de encolar
     instructions, result_name = prepare_preparation_plan(recipe_id)
     
     if not instructions:
         return jsonify({"status": "error", "mensaje": result_name}), 400
     
-    total_est = sum(step['duration'] for step in instructions) + len(instructions)
+    total_est = sum(step['duration'] for step in instructions) + (len(instructions) * 0.5)
     
     job = {
         "recipe_name": result_name,
@@ -215,24 +220,15 @@ def hacer_trago():
     return jsonify({
         "status": "success",
         "mensaje": f"Marchando un {result_name}",
-        "tiempo_estimado": f"{total_est:.0f}s",
+        "tiempo_estimado": f"{total_est:.1f}s",
         "cola": pedidos_queue.qsize()
     })
 
-# ============================================
-# NUEVO ENDPOINT DE PRUEBA MANUAL
-# ============================================
 @app.route('/prueba_manual', methods=['POST'])
 def prueba_manual():
     """
     Recibe una lista de bombas y segundos para activar manualmente.
-    Payload esperado:
-    {
-        "acciones": [
-            {"pin": 17, "segundos": 2},
-            {"pin": 27, "segundos": 5}
-        ]
-    }
+    Payload: {"acciones": [{"pin": 17, "segundos": 2}]}
     """
     data = request.json
     acciones = data.get('acciones', [])
@@ -243,7 +239,6 @@ def prueba_manual():
     instructions = []
     total_time_est = 0
     
-    # Construimos la estructura de trabajo manual
     for item in acciones:
         try:
             pin = int(item.get('pin'))
@@ -251,23 +246,21 @@ def prueba_manual():
             
             if secs <= 0: continue
             
-            # Creamos una instrucción compatible con el worker
             instructions.append({
                 "name": f"TEST_PIN_{pin}",
                 "pin": pin,
-                "amount": 0, # 0 indica que es prueba técnica
+                "amount": 0, 
                 "duration": secs,
                 "rate_used": 0
             })
             total_time_est += secs
             
         except (ValueError, TypeError):
-            continue # Ignoramos datos mal formados
+            continue 
             
     if not instructions:
-        return jsonify({"status": "error", "mensaje": "No hay acciones válidas para ejecutar"}), 400
+        return jsonify({"status": "error", "mensaje": "No hay acciones válidas"}), 400
         
-    # Encolamos el trabajo de prueba
     job = {
         "recipe_name": "🛠️ PRUEBA MANUAL",
         "instructions": instructions,
@@ -300,7 +293,7 @@ def ver_calibracion():
 # ============================================
 if __name__ == '__main__':
     try:
-        print("\n--- INICIANDO BARTENDER IA ---")
+        print("\n--- INICIANDO BARTENDER IA (CALIBRACIÓN CORREGIDA) ---")
         if setup_gpio():
             t = threading.Thread(target=procesar_pedidos, daemon=True)
             t.start()
