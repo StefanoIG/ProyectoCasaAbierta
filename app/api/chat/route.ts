@@ -1,26 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { COCKTAIL_RECIPES, PUMP_CONFIG, getIngredientPump, INGREDIENT_EMOTES } from '@/lib/cocktails';
+import Groq from 'groq-sdk';
+import { COCKTAIL_RECIPES, PUMP_CONFIG, getAvailableCocktails, getAvailableIngredients } from '@/lib/cocktails';
 
 // ============================================
-// RATE LIMITING - Gemini API
+// CONFIGURACIÓN DESDE ENV
 // ============================================
-let lastRequest = 0;
-const COOLDOWN = 35000; // 35 segundos entre requests
+const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+const GROQ_API_KEY = process.env.NEXT_PUBLIC_GROQ_API_KEY;
+const RASPBERRY_PI_HOST = process.env.NEXT_PUBLIC_RASPBERRY_PI_HOST || '192.168.1.23';
+const RASPBERRY_PI_PORT = process.env.NEXT_PUBLIC_RASPBERRY_PI_PORT || '5000';
+
+// ============================================
+// RESPUESTAS DE RESPALDO (FALLBACK)
+// ============================================
+function getFallbackResponses() {
+  const fallbackStr = process.env.NEXT_PUBLIC_FALLBACK_RESPONSES || '';
+  const responses: { [key: string]: string } = {};
+  
+  fallbackStr.split('|').forEach(pair => {
+    const [key, value] = pair.split(':');
+    if (key && value) {
+      responses[key.trim()] = value.trim();
+    }
+  });
+  
+  return responses;
+}
 
 // ============================================
 // CONFIGURACIÓN RASPBERRY PI
 // ============================================
-const RASPBERRY_PI_CONFIG = {
-  host: '192.168.1.23',
-  port: 5000,
-  endpoint: '/hacer_trago'
-};
-
 const getRaspberryUrl = () => 
-  `http://${RASPBERRY_PI_CONFIG.host}:${RASPBERRY_PI_CONFIG.port}${RASPBERRY_PI_CONFIG.endpoint}`;
+  `http://${RASPBERRY_PI_HOST}:${RASPBERRY_PI_PORT}/hacer_trago`;
 
-// Detectar idioma del mensaje con mayor precisión
+// ============================================
+// FUNCIONES DE IA - GEMINI Y GROQ
+// ============================================
+// ============================================
+// FUNCIONES DE IA - GEMINI Y GROQ
+// ============================================
+
+// Detectar idioma del mensaje
 function detectLanguage(text: string, previousLanguage: 'es' | 'en' = 'es'): 'es' | 'en' {
   const lowerText = text.toLowerCase();
   
@@ -29,147 +50,361 @@ function detectLanguage(text: string, previousLanguage: 'es' | 'en' = 'es'): 'es
     return 'es';
   }
   
-  // Palabras ÚNICAS en inglés (no existen en español)
-  const uniqueEnglishWords = [
-    'what', 'do', 'you', 'have', 'drinks', 'want', 'give', 
-    'can', 'make', 'the', 'and', 'cocktails', 'available',
-    'please', 'would', 'could', 'should'
+  // Palabras EXCLUSIVAS del español (no existen en inglés)
+  const spanishOnlyWords = [
+    'qué', 'cómo', 'cuándo', 'dónde', 'cuál', 'cuáles',
+    'dame', 'hazme', 'prepara', 'preparame', 'quiero', 'quisiera', 'querría',
+    'tienes', 'tenés', 'tiene', 'están', 'estás', 'está',
+    'hola', 'buenos', 'buenas', 'días', 'tardes', 'noches',
+    'recomiendas', 'recomendás', 'puedes', 'podés', 'puede',
+    'cócteles', 'cóctel', 'tragos', 'trago', 'bebidas', 'bebida',
+    'por', 'favor', 'gracias', 'muchas',
+    'sí', 'claro', 'vale', 'okey',
+    'un', 'una', 'unos', 'unas', 'el', 'la', 'los', 'las',
+    'del', 'al', 'con', 'sin', 'para', 'hacia'
   ];
   
-  // Palabras ÚNICAS en español (no existen en inglés)
-  const uniqueSpanishWords = [
-    'qué', 'tienes', 'dame', 'quiero', 'hola', 'prepara',
-    'quisiera', 'gustaría', 'cócteles', 'tragos', 'bebidas',
-    'disponibles', 'favor', 'hazme', 'dime', 'un', 'una'
+  // Palabras EXCLUSIVAS del inglés (no existen en español)
+  const englishOnlyWords = [
+    'hi', 'hello', 'hey', 'good', 'morning', 'afternoon', 'evening',
+    'what', 'where', 'when', 'which', 'who', 'whom', 'whose',
+    'do', 'does', 'did', 'have', 'has', 'had',
+    'can', 'could', 'would', 'should', 'will', 'shall',
+    'give', 'make', 'prepare', 'recommend', 'suggest',
+    'the', 'a', 'an', 'this', 'that', 'these', 'those',
+    'please', 'thank', 'thanks', 'yes', 'yeah', 'yep', 'nope',
+    'your', 'yours', 'my', 'mine', 'our', 'ours',
+    'cocktail', 'cocktails', 'drink', 'drinks', 'beverage'
   ];
   
   let englishScore = 0;
   let spanishScore = 0;
   
-  // Contar palabras únicas
-  uniqueEnglishWords.forEach(word => {
-    const regex = new RegExp(`\\b${word}\\b`, 'i');
-    if (regex.test(lowerText)) {
-      englishScore += 2; // Peso mayor
+  // Contar palabras exclusivas del español
+  spanishOnlyWords.forEach(word => {
+    if (new RegExp(`\\b${word}\\b`, 'i').test(lowerText)) {
+      spanishScore += 3; // Peso mayor para palabras exclusivas
     }
   });
   
-  uniqueSpanishWords.forEach(word => {
-    const regex = new RegExp(`\\b${word}\\b`, 'i');
-    if (regex.test(lowerText)) {
-      spanishScore += 2; // Peso mayor
+  // Contar palabras exclusivas del inglés
+  englishOnlyWords.forEach(word => {
+    if (new RegExp(`\\b${word}\\b`, 'i').test(lowerText)) {
+      englishScore += 3; // Peso mayor para palabras exclusivas
     }
   });
   
-  // Si hay score definitivo, usar ese idioma
-  if (englishScore > 0 && spanishScore === 0) return 'en';
-  if (spanishScore > 0 && englishScore === 0) return 'es';
+  console.log(`🔍 Scores: Español=${spanishScore}, Inglés=${englishScore}`);
   
-  // Si ambos tienen score, el mayor gana
+  // Si hay diferencia clara, usar ese idioma
   if (englishScore > spanishScore) return 'en';
   if (spanishScore > englishScore) return 'es';
   
-  // Si empate o sin coincidencias, mantener idioma anterior
+  // Si empate, usar idioma anterior
   return previousLanguage;
 }
 
+// Detectar solicitud de cóctel
 function detectCocktailRequest(text: string, language: 'es' | 'en' = 'es') {
   const lowerText = text.toLowerCase();
   
-  // Detectar confirmación de botón (NUEVO SISTEMA)
+  // Detectar confirmación de botón
   const buttonConfirmPattern = /^CONFIRM_ORDER_(.+)$/i;
   const buttonMatch = text.match(buttonConfirmPattern);
   
   if (buttonMatch) {
-    const cocktailId = buttonMatch[1].toLowerCase();
-    const recipe = COCKTAIL_RECIPES[cocktailId as keyof typeof COCKTAIL_RECIPES];
+    const cocktailId = buttonMatch[1];
+    const recipe = COCKTAIL_RECIPES[cocktailId];
     if (recipe) {
       return { cocktailId, recipe, confirmed: true, isButtonConfirm: true };
     }
   }
   
-  // Búsqueda normal de cócteles - MEJORADA
-  // Primero buscar coincidencia exacta del nombre completo
-  for (const [key, recipe] of Object.entries(COCKTAIL_RECIPES)) {
-    const recipeName = (recipe as any).name.toLowerCase();
-    if (lowerText.includes(recipeName)) {
-      return { cocktailId: key, recipe, confirmed: false, isButtonConfirm: false };
+  // Función auxiliar para comparación flexible (ignora tildes y errores menores)
+  function normalizeText(str: string): string {
+    return str
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Quitar tildes
+      .replace(/\s+/g, '') // Quitar espacios
+      .trim();
+  }
+  
+  // Función para calcular similitud básica
+  function isSimilar(str1: string, str2: string): boolean {
+    const norm1 = normalizeText(str1);
+    const norm2 = normalizeText(str2);
+    
+    // Coincidencia exacta sin tildes
+    if (norm1 === norm2) return true;
+    
+    // Coincidencia si uno contiene al otro (para variaciones)
+    if (norm1.includes(norm2) || norm2.includes(norm1)) return true;
+    
+    // Similitud de Levenshtein simple (para errores de tipeo)
+    const maxLength = Math.max(norm1.length, norm2.length);
+    if (maxLength === 0) return true;
+    
+    let differences = 0;
+    const minLength = Math.min(norm1.length, norm2.length);
+    
+    for (let i = 0; i < minLength; i++) {
+      if (norm1[i] !== norm2[i]) differences++;
+    }
+    differences += maxLength - minLength;
+    
+    // Permitir hasta 2 caracteres de diferencia
+    return differences <= 2;
+  }
+  
+  // Buscar por nombre de cóctel con comparación flexible
+  for (const [id, recipe] of Object.entries(COCKTAIL_RECIPES)) {
+    const recipeName = recipe.name;
+    
+    // Búsqueda exacta primero
+    if (lowerText.includes(recipeName.toLowerCase())) {
+      console.log(`🎯 Cóctel encontrado (exacto): ${recipeName}`);
+      return { cocktailId: id, recipe, confirmed: false, isButtonConfirm: false };
+    }
+    
+    // Búsqueda flexible por palabras del nombre
+    const recipeWords = recipeName.toLowerCase().split(/\s+/);
+    for (const word of recipeWords) {
+      if (word.length < 4) continue; // Ignorar palabras muy cortas
+      
+      const textWords = lowerText.split(/\s+/);
+      for (const textWord of textWords) {
+        if (isSimilar(word, textWord)) {
+          console.log(`🎯 Cóctel encontrado (similar): ${recipeName} (${word} ≈ ${textWord})`);
+          return { cocktailId: id, recipe, confirmed: false, isButtonConfirm: false };
+        }
+      }
     }
   }
   
-  // Luego buscar por palabras clave del coctel
-  if (lowerText.includes('mojito')) {
-    return { cocktailId: 'mojito', recipe: COCKTAIL_RECIPES.mojito, confirmed: false, isButtonConfirm: false };
-  }
-  if (lowerText.includes('margarita')) {
-    return { cocktailId: 'margarita', recipe: COCKTAIL_RECIPES.margarita, confirmed: false, isButtonConfirm: false };
-  }
-  if (lowerText.includes('cuba') && lowerText.includes('libre')) {
-    return { cocktailId: 'cuba_libre', recipe: COCKTAIL_RECIPES.cuba_libre, confirmed: false, isButtonConfirm: false };
-  }
-  if (lowerText.includes('paloma')) {
-    return { cocktailId: 'paloma', recipe: COCKTAIL_RECIPES.paloma, confirmed: false, isButtonConfirm: false };
-  }
-  if ((lowerText.includes('vodka') && lowerText.includes('citrus')) || (lowerText.includes('vodka') && lowerText.includes('cítrus'))) {
-    return { cocktailId: 'vodka_citrus', recipe: COCKTAIL_RECIPES.vodka_citrus, confirmed: false, isButtonConfirm: false };
-  }
-  if ((lowerText.includes('vodka') && lowerText.includes('soda')) || (lowerText.match(/\bvodka\b/) && !lowerText.includes('citrus'))) {
-    return { cocktailId: 'vodka_soda', recipe: COCKTAIL_RECIPES.vodka_soda, confirmed: false, isButtonConfirm: false };
-  }
-  if (lowerText.includes('tequila') && (lowerText.includes('sunrise') || lowerText.includes('amanecer'))) {
-    return { cocktailId: 'tequila_sunrise', recipe: COCKTAIL_RECIPES.tequila_sunrise, confirmed: false, isButtonConfirm: false };
-  }
-  if (lowerText.includes('ron') && lowerText.includes('collins')) {
-    return { cocktailId: 'ron_collins', recipe: COCKTAIL_RECIPES.ron_collins, confirmed: false, isButtonConfirm: false };
-  }
-  
-  // Detectar intención de pedir un cóctel
+  // Detectar intención de pedir un cóctel (si no se encontró nombre específico)
   const intentKeywords = language === 'es' 
-    ? ['quiero', 'dame', 'prepara', 'hazme', 'quisiera', 'me gustaría', 'un ']
-    : ['want', 'make', 'prepare', 'would like', 'give me', 'can you make', 'get me'];
+    ? ['quiero', 'dame', 'prepara', 'hazme', 'quisiera', 'me gustaría', 'pedido', 'pedir']
+    : ['want', 'make', 'prepare', 'would like', 'give me', 'can you make', 'get me', 'order'];
     
   const hasCocktailIntent = intentKeywords.some(keyword => lowerText.includes(keyword));
   
-  return hasCocktailIntent ? { intent: 'request', cocktailId: null, confirmed: false, isButtonConfirm: false } : null;
-}
-
-function generateRaspberryPayload(recipe: any) {
-  const pumps: any = {};
-  let totalMl = 0;
-  
-  // Convertir ingredientes del nuevo formato
-  for (const [ingredientName, ml] of Object.entries(recipe.ingredients)) {
-    const pumpKey = getIngredientPump(ingredientName);
-    if (!pumpKey) continue;
-    
-    const pumpConfig = PUMP_CONFIG[pumpKey as keyof typeof PUMP_CONFIG];
-    const mlValue = ml as number;
-    const durationMs = (mlValue / pumpConfig.ml_per_second) * 1000;
-    
-    pumps[pumpKey] = {
-      gpio_pin: pumpConfig.gpio_pin,
-      ingredient: ingredientName,
-      ml: mlValue,
-      duration_ms: Math.round(durationMs)
-    };
-    
-    totalMl += mlValue;
+  if (hasCocktailIntent) {
+    console.log('🔍 Intención de cóctel detectada pero no se encontró nombre específico');
   }
   
-  return {
-    recipe_id: recipe.name.toLowerCase().replace(/\s+/g, '_'),
-    recipe_name: recipe.name,
-    pumps,
-    total_ml: totalMl,
-    timestamp: Date.now()
-  };
+  return null;
 }
 
-async function sendToRaspberryPi(payload: any) {
+// Generar prompt del sistema
+function generateSystemPrompt(language: 'es' | 'en', isFirstMessage: boolean) {
+  const cocktails = getAvailableCocktails();
+  const ingredients = getAvailableIngredients();
+  
+  const cocktailList = cocktails
+    .map(c => {
+      const ingredientsList = c.ingredients
+        .map(ing => {
+          const pumpConfig = PUMP_CONFIG[ing.pump as keyof typeof PUMP_CONFIG];
+          return `${ing.ml}ml de ${pumpConfig.label}`;
+        })
+        .join(', ');
+      return `- **${c.name}**: ${ingredientsList}`;
+    })
+    .join('\n');
+  
+  const ingredientList = ingredients
+    .map(ing => `- ${ing.label}`)
+    .join('\n');
+
+  if (language === 'es') {
+    return `Eres un barman profesional AI amable y cordial que ayuda a preparar cócteles usando un sistema IoT con bombas automáticas.
+
+**INGREDIENTES DISPONIBLES:**
+${ingredientList}
+
+**CÓCTELES DISPONIBLES:**
+${cocktailList}
+
+**INSTRUCCIONES CRÍTICAS:**
+1. SIEMPRE responde ÚNICAMENTE en ESPAÑOL
+2. Sé amigable, detallado y descriptivo en tus respuestas
+3. ${isFirstMessage ? 'Primera vez: saluda y menciona que puedes preparar cócteles' : 'Continúa la conversación naturalmente'}
+4. Cuando menciones un cóctel, describe sus ingredientes y sabor
+5. Si piden un cóctel, explica lo que lleva y pregunta si desean confirmarlo
+6. Responde preguntas sobre ingredientes, cócteles y preparación
+7. Sé conversacional - NO hay límites de tiempo ni prisa
+
+**EJEMPLOS:**
+Usuario: "Hola"
+Tú: "¡Hola! 🍹 Soy tu barman personal. Puedo prepararte deliciosos cócteles como Margarita, Daiquiri, Gimlet y más. ¿Qué te gustaría tomar hoy?"
+
+Usuario: "Quiero una Margarita"
+Tú: "¡Excelente elección! 🍹 La Margarita es un clásico mexicano refrescante. Lleva 60ml de Tequila y 90ml de Mix Limón (Sweet & Sour). ¿Te la preparo?"
+
+Usuario: "¿Qué ingredientes tienes?"
+Tú: "Cuento con una variedad de ingredientes: Ron, Mix Limón (Sweet & Sour), Gin, Jugo de Naranja, Vodka y Tequila. ¿Te gustaría saber qué cócteles puedo hacer con estos?"`;
+  } else {
+    return `You are a friendly professional AI bartender that helps prepare cocktails using an IoT system with automatic pumps.
+
+**AVAILABLE INGREDIENTS:**
+${ingredientList}
+
+**AVAILABLE COCKTAILS:**
+${cocktailList}
+
+**CRITICAL INSTRUCTIONS:**
+1. ALWAYS respond ONLY in ENGLISH - NEVER in Spanish
+2. Be friendly, detailed and descriptive in your responses
+3. ${isFirstMessage ? 'First time: greet and mention you can prepare cocktails' : 'Continue the conversation naturally'}
+4. When mentioning a cocktail, describe its ingredients and flavor
+5. If they ask for a cocktail, explain what it contains and ask if they want to confirm
+6. Answer questions about ingredients, cocktails and preparation
+7. Be conversational - NO time limits or rush
+
+**MANDATORY RULES:**
+❌ NEVER respond in Spanish
+❌ NEVER mix English and Spanish
+✅ ONLY use English language
+
+**EXAMPLES:**
+User: "Hello"
+You: "Hello! 🍹 I'm your personal bartender. I can prepare delicious cocktails like Margarita, Daiquiri, Gimlet and more. What would you like to drink today?"
+
+User: "I want a Margarita"
+You: "Excellent choice! 🍹 The Margarita is a refreshing Mexican classic. It has 60ml of Tequila and 90ml of Sweet & Sour Mix. Shall I prepare it for you?"
+
+User: "What ingredients do you have?"
+You: "I have a variety of ingredients: Rum, Sweet & Sour Mix, Gin, Orange Juice, Vodka and Tequila. Would you like to know what cocktails I can make with these?"`;
+  }
+}
+
+// Intentar con Gemini
+async function tryGemini(message: string, conversationHistory: any[], language: 'es' | 'en', isFirstMessage: boolean): Promise<string | null> {
+  if (!GEMINI_API_KEY) {
+    console.log('❌ Gemini API Key no configurada');
+    return null;
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    
+    const systemPrompt = generateSystemPrompt(language, isFirstMessage);
+    
+    const contents = [
+      ...conversationHistory.map((msg: any) => ({
+        role: msg.role === 'user' ? 'user' : 'model',
+        parts: [{ text: msg.content }]
+      })),
+      {
+        role: 'user',
+        parts: [{ text: message }]
+      }
+    ];
+    
+    const result = await model.generateContent({
+      contents,
+      systemInstruction: systemPrompt
+    });
+    
+    const response = await result.response;
+    const responseText = response.text();
+    
+    console.log('✅ Gemini respondió:', responseText.substring(0, 100));
+    return responseText;
+  } catch (error: any) {
+    console.log('❌ Gemini falló:', error.message);
+    return null;
+  }
+}
+
+// Intentar con Groq
+async function tryGroq(message: string, conversationHistory: any[], language: 'es' | 'en', isFirstMessage: boolean): Promise<string | null> {
+  if (!GROQ_API_KEY) {
+    console.log('❌ Groq API Key no configurada');
+    return null;
+  }
+
+  try {
+    const groq = new Groq({ apiKey: GROQ_API_KEY });
+    
+    const systemPrompt = generateSystemPrompt(language, isFirstMessage);
+    
+    const messages = [
+      { role: 'system' as const, content: systemPrompt },
+      ...conversationHistory.map((msg: any) => ({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content
+      })),
+      { role: 'user' as const, content: message }
+    ];
+    
+    const chatCompletion = await groq.chat.completions.create({
+      messages,
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0.7,
+      max_tokens: 500
+    });
+    
+    const responseText = chatCompletion.choices[0]?.message?.content || null;
+    
+    if (responseText) {
+      console.log('✅ Groq respondió:', responseText.substring(0, 100));
+    }
+    
+    return responseText;
+  } catch (error: any) {
+    console.log('❌ Groq falló:', error.message);
+    return null;
+  }
+}
+
+// Respuesta de respaldo (fallback)
+function getFallbackResponse(message: string, language: 'es' | 'en'): string {
+  const responses = getFallbackResponses();
+  const lowerMessage = message.toLowerCase();
+  
+  // Detectar tipo de pregunta
+  if (/hola|hi|hello|hey/i.test(lowerMessage)) {
+    return responses['saludo'] || '¡Hola! 🍹 ¿Qué coctel te gustaría?';
+  }
+  
+  if (/menú|menu|qué.*tienes|what.*have|opciones|options/i.test(lowerMessage)) {
+    return responses['menu'] || 'Tengo Margarita, Daiquiri, Gimlet, Destornillador, Vodka Sour y Rum Punch.';
+  }
+  
+  if (/ingredientes|ingredients/i.test(lowerMessage)) {
+    return responses['ingredientes'] || 'Cuento con: Ron, Mix Limón, Gin, Jugo de Naranja, Vodka y Tequila';
+  }
+  
+  return responses['default'] || '¿Qué coctel te gustaría probar hoy? 🍹';
+}
+
+// ============================================
+// ENVÍO A RASPBERRY PI
+// ============================================
+
+// ============================================
+// ENVÍO A RASPBERRY PI
+// ============================================
+
+async function sendToRaspberryPi(recipeId: number) {
   try {
     const url = getRaspberryUrl();
-    console.log(`🍹 Enviando payload a Raspberry Pi: ${url}`);
+    
+    const payload = {
+      recipe_id: recipeId
+    };
+    
+    console.log('═══════════════════════════════════════');
+    console.log('🍹 FETCH A RASPBERRY PI DESDE API');
+    console.log('═══════════════════════════════════════');
+    console.log('URL:', url);
+    console.log('Método: POST');
+    console.log('Headers:', { 'Content-Type': 'application/json' });
     console.log('Payload:', JSON.stringify(payload, null, 2));
+    console.log('═══════════════════════════════════════');
     
     const response = await fetch(url, {
       method: 'POST',
@@ -192,173 +427,53 @@ async function sendToRaspberryPi(payload: any) {
   }
 }
 
+// ============================================
+// ENDPOINT PRINCIPAL
+// ============================================
+
 export async function POST(request: NextRequest) {
-  let previousLanguage: 'es' | 'en' = 'es'; // Declarar fuera del try para usar en catch
+  let previousLanguage: 'es' | 'en' = 'es';
   
   try {
     const requestData = await request.json();
     const { message, conversationHistory = [] } = requestData;
     previousLanguage = requestData.previousLanguage || 'es';
-    
-    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'API key no configurada' },
-        { status: 500 }
-      );
-    }
-
-    // ============================================
-    // RATE LIMITING CHECK
-    // ============================================
-    const now = Date.now();
-    const timeSinceLastRequest = now - lastRequest;
-    
-    if (timeSinceLastRequest < COOLDOWN) {
-      const waitTime = Math.ceil((COOLDOWN - timeSinceLastRequest) / 1000);
-      const errorMessage = previousLanguage === 'es' 
-        ? `⏳ Por favor espera ${waitTime} segundos antes de enviar otro mensaje`
-        : `⏳ Please wait ${waitTime} seconds before sending another message`;
-      
-      console.log(`⚠️ Rate limit: Usuario debe esperar ${waitTime}s`);
-      
-      return NextResponse.json(
-        { 
-          error: errorMessage,
-          isRateLimit: true,
-          waitTime: waitTime
-        },
-        { status: 429 }
-      );
-    }
-    
-    // Actualizar último request
-    lastRequest = now;
-
-    // Detectar idioma del mensaje (pasar idioma anterior)
+    // Detectar idioma
     const language = detectLanguage(message, previousLanguage);
+    const isFirstMessage = conversationHistory.length === 0;
 
-    // Inicializar Google Generative AI
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
+    console.log('═══════════════════════════════════════');
+    console.log('📨 NUEVA PETICIÓN AL CHAT');
+    console.log('═══════════════════════════════════════');
+    console.log('Mensaje:', message);
+    console.log('Idioma detectado:', language);
+    console.log('Idioma anterior:', previousLanguage);
+    console.log('Primera mensaje:', isFirstMessage);
+    console.log('═══════════════════════════════════════');
 
     // Detectar si hay solicitud de cóctel
     const cocktailRequest = detectCocktailRequest(message, language);
 
-    // Sistema prompt mejorado bilingüe
-    const isFirstMessage = conversationHistory.length === 0;
-
-    const systemPrompt = language === 'es' ? `Eres un barman profesional AI amable y cordial que ayuda a preparar cócteles usando un sistema IoT con bombas automáticas.
-
-**INGREDIENTES DISPONIBLES:**
-${Object.entries(PUMP_CONFIG)
-  .map(([key, pump]) => `- ${pump.ingredient.replace('_', ' ')}`)
-  .join('\n')}
-
-**CÓCTELES DISPONIBLES:**
-${Object.entries(COCKTAIL_RECIPES)
-  .map(([key, recipe]) => {
-    const ingredients = Object.keys((recipe as any).ingredients)
-      .map((ing: string) => ing.replace('_', ' '))
-      .join(', ');
-    return `- **${(recipe as any).name}**: ${ingredients}`;
-  })
-  .join('\n')}
-
-**INSTRUCCIONES CRÍTICAS:**
-1. SIEMPRE responde ÚNICAMENTE en ESPAÑOL
-2. Máximo 180 caracteres - sé muy breve
-3. ${isFirstMessage ? 'Primera vez: "¡Hola! 🍹 ¿Qué coctel?"' : 'NO saludes'}
-4. Solo 1 emoji 🍹
-5. Nombres simples de ingredientes
-
-**REGLAS ABSOLUTAS - PROHIBIDO:**
-❌ NUNCA digas "para confirmar"
-❌ NUNCA digas "escribe"
-❌ NUNCA digas "CONFIRMAR PEDIDO"
-❌ NUNCA pidas que escriban algo
-✅ Solo menciona el coctel e ingredientes
-
-**FORMATO OBLIGATORIO cuando piden coctel:**
-"🍹 [Nombre]: [ingredientes con ml]"
-
-**EJEMPLOS:**
-Usuario: "Quiero mojito"
-Tú: "🍹 Mojito: 50ml ron, 30ml lima, 100ml soda"
-
-Usuario: "dame vodka"
-Tú: "🍹 Vodka Soda: 50ml vodka, 100ml soda, 20ml lima"
-
-Usuario: "Hola"
-Tú: "¡Hola! 🍹 ¿Qué coctel te preparo?"` : 
-`You are a friendly professional AI bartender that helps prepare cocktails using an IoT system with automatic pumps.
-
-**AVAILABLE INGREDIENTS:**
-${Object.entries(PUMP_CONFIG)
-  .map(([key, pump]) => `- ${pump.ingredient.replace('_', ' ')}`)
-  .join('\n')}
-
-**AVAILABLE COCKTAILS:**
-${Object.entries(COCKTAIL_RECIPES)
-  .map(([key, recipe]) => {
-    const ingredients = Object.keys((recipe as any).ingredients)
-      .map((ing: string) => ing.replace('_', ' '))
-      .join(', ');
-    return `- **${(recipe as any).name}**: ${ingredients}`;
-  })
-  .join('\n')}
-
-**CRITICAL INSTRUCTIONS:**
-1. ALWAYS respond ONLY in ENGLISH
-2. Maximum 180 characters - be very brief
-3. ${isFirstMessage ? 'First time: "Hello! 🍹 What cocktail?"' : 'NO greetings'}
-4. Only 1 emoji 🍹
-5. Simple ingredient names
-
-**ABSOLUTE RULES - FORBIDDEN:**
-❌ NEVER say "to confirm"
-❌ NEVER say "write"
-❌ NEVER say "CONFIRM ORDER"
-❌ NEVER ask them to write anything
-✅ Only mention cocktail and ingredients
-
-**MANDATORY FORMAT when requesting cocktail:**
-"🍹 [Name]: [ingredients with ml]"
-
-**EXAMPLES:**
-User: "I want mojito"
-You: "🍹 Mojito: 50ml rum, 30ml lime, 100ml soda"
-
-User: "give me vodka"
-You: "🍹 Vodka Soda: 50ml vodka, 100ml soda, 20ml lime"`;
-
-    // LOG para debugging
-    console.log('🔍 Idioma detectado:', language, '| Mensaje:', message);
-
-    // Construir historial de conversación
-    const contents = [
-      ...conversationHistory.map((msg: any) => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }]
-      })),
-      {
-        role: 'user',
-        parts: [{ text: message }]
-      }
-    ];
-
-    // Llamar a Gemini con historial
-    const result = await model.generateContent({
-      contents,
-      systemInstruction: systemPrompt
-    });
-
-    const response = await result.response;
-    const responseText = response.text();
+    // Intentar obtener respuesta de IA (Gemini -> Groq -> Fallback)
+    let responseText: string | null = null;
     
-    // LOG de respuesta
-    console.log('💬 Respuesta IA:', responseText);
+    // 1. Intentar con Gemini
+    responseText = await tryGemini(message, conversationHistory, language, isFirstMessage);
+    
+    // 2. Si Gemini falla, intentar con Groq
+    if (!responseText) {
+      console.log('🔄 Cambiando a Groq...');
+      responseText = await tryGroq(message, conversationHistory, language, isFirstMessage);
+    }
+    
+    // 3. Si ambos fallan, usar respuesta de respaldo
+    if (!responseText) {
+      console.log('🔄 Usando respuesta de respaldo (fallback)...');
+      responseText = getFallbackResponse(message, language);
+    }
+
+    console.log('💬 Respuesta final:', responseText);
 
     // Preparar respuesta
     const finalResponse: any = {
@@ -367,14 +482,13 @@ You: "🍹 Vodka Soda: 50ml vodka, 100ml soda, 20ml lime"`;
       showConfirmButton: false,
       cocktailId: null,
       recipe: null,
-      raspberryPayload: null,
       raspberryResponse: null,
       language
     };
 
     // Si se detectó un cóctel
     if (cocktailRequest?.cocktailId) {
-      const recipe = COCKTAIL_RECIPES[cocktailRequest.cocktailId as keyof typeof COCKTAIL_RECIPES];
+      const recipe = COCKTAIL_RECIPES[cocktailRequest.cocktailId];
       
       console.log('🍸 Cóctel detectado:', cocktailRequest.cocktailId, '| Confirmado:', cocktailRequest.confirmed);
       
@@ -382,13 +496,12 @@ You: "🍹 Vodka Soda: 50ml vodka, 100ml soda, 20ml lime"`;
       if (cocktailRequest.confirmed && cocktailRequest.isButtonConfirm) {
         finalResponse.shouldPrepare = true;
         finalResponse.recipe = recipe;
-        finalResponse.raspberryPayload = generateRaspberryPayload(recipe);
         
-        console.log('🍹 RASPBERRY PI PAYLOAD:', JSON.stringify(finalResponse.raspberryPayload, null, 2));
+        console.log('🍹 Enviando receta ID:', recipe.id);
         
-        // Enviar al Raspberry Pi
+        // Enviar al Raspberry Pi solo con el ID
         try {
-          const raspberryResult = await sendToRaspberryPi(finalResponse.raspberryPayload);
+          const raspberryResult = await sendToRaspberryPi(recipe.id);
           finalResponse.raspberryResponse = raspberryResult;
           console.log('✅ Cóctel enviado a preparar exitosamente');
         } catch (error: any) {
@@ -409,26 +522,14 @@ You: "🍹 Vodka Soda: 50ml vodka, 100ml soda, 20ml lime"`;
 
     return NextResponse.json(finalResponse);
   } catch (error: any) {
-    console.error('Error en chat API:', error);
+    console.error('❌ Error en chat API:', error);
     
-    // Manejar específicamente errores de quota de Gemini
-    if (error.message && error.message.includes('quota') || error.status === 429) {
-      const errorMessage = previousLanguage === 'es'
-        ? '⚠️ Se alcanzó el límite de la API. Por favor espera 35 segundos e intenta de nuevo.'
-        : '⚠️ API rate limit reached. Please wait 35 seconds and try again.';
-      
-      return NextResponse.json(
-        { 
-          error: errorMessage,
-          isRateLimit: true,
-          waitTime: 35
-        },
-        { status: 429 }
-      );
-    }
+    const errorMessage = previousLanguage === 'es'
+      ? '⚠️ Hubo un error procesando tu mensaje. Por favor intenta de nuevo.'
+      : '⚠️ There was an error processing your message. Please try again.';
     
     return NextResponse.json(
-      { error: error.message || 'Error procesando el mensaje' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

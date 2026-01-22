@@ -36,12 +36,12 @@ DEFAULT_RATE = 10.0 / 30.0
 # FUNCIONES AUXILIARES
 # ============================================
 def load_config():
-    """Lee el archivo config.json con el nuevo formato"""
+    """Lee el archivo pi.json con el nuevo formato"""
     try:
-        with open('config.json', 'r', encoding='utf-8') as f:
+        with open('pi.json', 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception as e:
-        print(f"❌ Error leyendo config.json: {e}")
+        print(f"❌ Error leyendo pi.json: {e}")
         return None
 
 def setup_gpio():

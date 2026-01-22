@@ -61,13 +61,18 @@ export function ChatContainer() {
     try {
       // Importar recetas desde pi.json
       const piConfig = await import("@/pi.json")
-      const recipe = piConfig.default.recipes[cocktailId as keyof typeof piConfig.default.recipes]
+      
+      // Buscar la receta en el array de menu por ID
+      const recipeId = parseInt(cocktailId)
+      const recipe = piConfig.default.menu.find((r: any) => r.id === recipeId)
       
       if (!recipe) {
         throw new Error(language === 'es' 
           ? "Receta no encontrada" 
           : "Recipe not found")
       }
+      
+      console.log('🍸 Receta encontrada:', recipe)
 
       // Mensaje de preparación
       const preparingText = language === 'es' 
@@ -84,40 +89,20 @@ export function ChatContainer() {
       addMessage(assistantMessage)
       setState("preparing")
 
-      // Generar payload para Raspberry Pi (misma lógica que generateRaspberryPayload)
-      const pumps: any = {}
-      let totalMl = 0
-      
-      for (const [ingredientName, ml] of Object.entries(recipe.ingredients)) {
-        const pumpConfig = piConfig.default.pumps.find((p: any) => p.ingredient === ingredientName)
-        if (!pumpConfig) continue
-        
-        const mlValue = ml as number
-        const mlPerSecond = 1 / piConfig.default.config.segundos_por_ml // 0.5s/ml → 2ml/s
-        const durationMs = (mlValue / mlPerSecond) * 1000
-        
-        pumps[`pump${pumpConfig.numero}`] = {
-          gpio_pin: pumpConfig.gpio_pin,
-          ingredient: ingredientName,
-          ml: mlValue,
-          duration_ms: Math.round(durationMs)
-        }
-        
-        totalMl += mlValue
-      }
-
+      // Generar payload simplificado para Raspberry Pi (solo ID)
       const payload = {
-        recipe_id: cocktailId,
-        recipe_name: recipe.name,
-        pumps,
-        total_ml: totalMl,
-        timestamp: Date.now()
+        recipe_id: recipeId
       }
 
-      console.log("🍹 ENVIANDO DIRECTAMENTE A RASPBERRY PI:", payload)
+      console.log('═══════════════════════════════════════')
+      console.log('🍹 ENVIANDO A RASPBERRY PI')
+      console.log('═══════════════════════════════════════')
+      console.log('URL:', `http://${process.env.NEXT_PUBLIC_RASPBERRY_PI_HOST}:${process.env.NEXT_PUBLIC_RASPBERRY_PI_PORT}/hacer_trago`)
+      console.log('Payload:', JSON.stringify(payload, null, 2))
+      console.log('═══════════════════════════════════════')
 
       // Enviar directo a Raspberry Pi
-      const raspberryUrl = 'http://192.168.1.23:5000/hacer_trago'
+      const raspberryUrl = `http://${process.env.NEXT_PUBLIC_RASPBERRY_PI_HOST}:${process.env.NEXT_PUBLIC_RASPBERRY_PI_PORT}/hacer_trago`
       const response = await fetch(raspberryUrl, {
         method: 'POST',
         headers: {

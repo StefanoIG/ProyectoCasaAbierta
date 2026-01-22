@@ -29,6 +29,7 @@ export function ChatMessages({ messages, isLoading, state, onConfirmCocktail, la
           message={message} 
           isUser={message.role === "user"} 
           onConfirmCocktail={onConfirmCocktail}
+          isLoading={isLoading || state === "preparing"}
         />
       ))}
 

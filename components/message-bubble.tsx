@@ -10,13 +10,15 @@ interface MessageBubbleProps {
   message: Message
   isUser: boolean
   onConfirmCocktail?: (cocktailId: string) => void
+  isLoading?: boolean
 }
 
-export function MessageBubble({ message, isUser, onConfirmCocktail }: MessageBubbleProps) {
+export function MessageBubble({ message, isUser, onConfirmCocktail, isLoading = false }: MessageBubbleProps) {
   const parsedContent = parseMarkdown(message.content)
   const [isCancelled, setIsCancelled] = useState(false)
 
   const handleCancel = () => {
+    if (isLoading) return // No permitir cancelar durante preparación
     setIsCancelled(true)
   }
 
@@ -44,7 +46,12 @@ export function MessageBubble({ message, isUser, onConfirmCocktail }: MessageBub
             />
             <button
               onClick={handleCancel}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm bg-red-600/20 text-red-400 border border-red-600/30 hover:bg-red-600/30 hover:border-red-600/50 transition-all"
+              disabled={isLoading}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm bg-red-600/20 text-red-400 border border-red-600/30 transition-all ${
+                isLoading 
+                  ? 'opacity-50 cursor-not-allowed' 
+                  : 'hover:bg-red-600/30 hover:border-red-600/50'
+              }`}
               aria-label={message.language === 'es' ? 'Cancelar' : 'Cancel'}
             >
               <X className="w-4 h-4" />
